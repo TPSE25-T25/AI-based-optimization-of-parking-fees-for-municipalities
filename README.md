@@ -191,4 +191,4 @@ The React app includes built-in error handling and will display connection statu
 ## License
 
 This project is part of a university course (TPSE) and is intended for educational purposes.
-AI-based optimization of parking fees for municipalities
+AI-based optimization of parking fees for municipalities.
