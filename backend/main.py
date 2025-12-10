@@ -3,6 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
 
+from schemas.optimization import ParkingZoneInput, OptimizationSettings, OptimizationRequest, OptimizationResponse
+from services.nsga3_optimizer import NSGA3Optimizer
+
+
 app = FastAPI(title="Parking Fee Optimization API", version="1.0.0")
 
 # Configure CORS
@@ -84,6 +88,10 @@ async def optimize_fee(request: FeeOptimizationRequest):
             }
     
     return {"error": "Zone not found"}
+
+
+
+
 
 if __name__ == "__main__":
     import uvicorn
