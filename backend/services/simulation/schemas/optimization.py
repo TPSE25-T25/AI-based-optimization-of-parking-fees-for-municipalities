@@ -40,7 +40,7 @@ class OptimizationSettings(BaseModel):
     """
     Settings for the NSGA-III algorithm itself.
     """
-    population_size: int = Field(default=100, ge=10, description="Number of solutions per generation")
+    population_size: int = Field(default=200, ge=10, description="Number of solutions per generation")
     generations: int = Field(default=50, ge=1, description="Number of generations (iterations)")
     target_occupancy: float = Field(default=0.85, ge=0, le=1.0, description="Desired target occupancy") # for Objective 2   # Avoid overload/vacancy -> 85% occupancy is ideal
 

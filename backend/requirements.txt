@@ -3,3 +3,11 @@ uvicorn>=0.27.0
 python-multipart>=0.0.7
 pydantic>=2.10.0
 pytest
+pymoo
+osmnx
+folium
+pandas
+numpy
+geopandas
+shapely
+matplotlib
