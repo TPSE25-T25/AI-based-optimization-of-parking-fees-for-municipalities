@@ -2,9 +2,8 @@
 City and Street models for parking simulation
 """
 
-from pydantic import BaseModel, Field, field_validator, validator
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from typing import List, Tuple, Optional
-from decimal import Decimal
 
 from .parkinglot import ParkingLot
 
@@ -13,6 +12,15 @@ class PointOfInterest(BaseModel):
     """
     Point of Interest model representing important locations in the city.
     """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": 1,
+                "pseudonym": "CityHall",
+                "position": [52.5200, 13.4050]
+            }
+        }
+    )
     
     # Unique identification
     id: int = Field(..., description="Unique point of interest identifier")
@@ -20,15 +28,6 @@ class PointOfInterest(BaseModel):
     
     # Location
     position: Tuple[float, float] = Field(..., description="Position (latitude, longitude)")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "id": 1,
-                "pseudonym": "CityHall",
-                "position": [52.5200, 13.4050]
-            }
-        }
     
     def distance_to_point(self, point: Tuple[float, float]) -> float:
         """
@@ -45,6 +44,19 @@ class Street(BaseModel):
     Street model representing a connection between parking lots.
     Defines the cost/distance of driving between two points.
     """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": 1,
+                "pseudonym": "MainStreet_A_B",
+                "from_position": [100.0, 200.0],
+                "to_position": [300.0, 450.0],
+                "from_parking_lot_id": 1,
+                "to_parking_lot_id": 2,
+                "speed_limit": 2.0
+            }
+        }
+    )
     
     # Connection identification
     id: int = Field(..., description="Unique street identifier")
@@ -60,19 +72,6 @@ class Street(BaseModel):
     
     # Street characteristics
     speed_limit: float = Field(..., gt=0, description="Maximum travel speed in pixels per unit time")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "id": 1,
-                "pseudonym": "MainStreet_A_B",
-                "from_position": [100.0, 200.0],
-                "to_position": [300.0, 450.0],
-                "from_parking_lot_id": 1,
-                "to_parking_lot_id": 2,
-                "speed_limit": 2.0
-            }
-        }
     
     def length(self) -> float:
         """Calculate the euclidean length between from_position and to_position."""
@@ -106,8 +105,8 @@ class City(BaseModel):
     )
     streets: List[Street] = Field(default_factory=list, description="List of streets connecting locations")
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "id": 1,
                 "pseudonym": "SimCity_Downtown",
@@ -147,35 +146,34 @@ class City(BaseModel):
                 ]
             }
         }
+    )
     
     @field_validator('canvas')
+    @classmethod
     def canvas_positive_dimensions(cls, v):
         """Validate that canvas dimensions are positive."""
         if v[0] <= 0 or v[1] <= 0:
             raise ValueError('Canvas dimensions must be positive')
         return v
     
-    @validator('parking_lots')
-    def validate_parking_lot_positions(cls, v, values):
-        """Validate that all parking lots are within canvas bounds."""
-        if 'canvas' in values:
-            canvas_width, canvas_height = values['canvas']
-            for lot in v:
-                lat, lon = lot.position
-                if not (0 <= lat <= canvas_width and 0 <= lon <= canvas_height):
-                    raise ValueError(f'Parking lot {lot.id} position {lot.position} is outside canvas bounds')
-        return v
-    
-    @validator('point_of_interests')
-    def validate_poi_positions(cls, v, values):
-        """Validate that all points of interest are within canvas bounds."""
-        if 'canvas' in values:
-            canvas_width, canvas_height = values['canvas']
-            for poi in v:
-                lat, lon = poi.position
-                if not (0 <= lat <= canvas_width and 0 <= lon <= canvas_height):
-                    raise ValueError(f'Point of interest {poi.id} at position {poi.position} is outside canvas bounds')
-        return v
+    @model_validator(mode='after')
+    def validate_positions(self):
+        """Validate that all parking lots and POIs are within canvas bounds."""
+        canvas_width, canvas_height = self.canvas
+        
+        # Validate parking lot positions
+        for lot in self.parking_lots:
+            lat, lon = lot.position
+            if not (0 <= lat <= canvas_width and 0 <= lon <= canvas_height):
+                raise ValueError(f'Parking lot {lot.id} position {lot.position} is outside canvas bounds')
+        
+        # Validate point of interest positions
+        for poi in self.point_of_interests:
+            lat, lon = poi.position
+            if not (0 <= lat <= canvas_width and 0 <= lon <= canvas_height):
+                raise ValueError(f'Point of interest {poi.id} at position {poi.position} is outside canvas bounds')
+        
+        return self
     
     def get_parking_lot_by_id(self, lot_id: int) -> Optional[ParkingLot]:
         """Find parking lot by ID."""
