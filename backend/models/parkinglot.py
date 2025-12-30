@@ -2,7 +2,7 @@
 ParkingLot model for parking simulation
 """
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from typing import Tuple
 from decimal import Decimal
 
@@ -12,6 +12,18 @@ class ParkingLot(BaseModel):
     ParkingLot model for parking simulation.
     Represents a parking facility with capacity and pricing information.
     """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": 1,
+                "pseudonym": "CenterLot001",
+                "price": "2.50",
+                "position": [52.5170, 13.4003],
+                "maximum_capacity": 150,
+                "current_capacity": 10
+            }
+        }
+    )
     
     # Unique identification
     id: int = Field(..., description="Unique parking lot identifier")
@@ -27,24 +39,12 @@ class ParkingLot(BaseModel):
     maximum_capacity: int = Field(..., gt=0, description="Maximum number of parking spots")
     current_capacity: int = Field(..., ge=0, description="Currently occupied parking spots")
     
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "id": 1,
-                "pseudonym": "CenterLot001",
-                "price": "2.50",
-                "position": [52.5170, 13.4003],
-                "maximum_capacity": 150,
-                "current_capacity": 10
-            }
-        }
-    
-    @field_validator('current_capacity')
-    def current_capacity_not_exceed_maximum(cls, v, values):
+    @model_validator(mode='after')
+    def current_capacity_not_exceed_maximum(self):
         """Validate that current capacity doesn't exceed maximum capacity."""
-        if 'maximum_capacity' in values and v > values['maximum_capacity']:
+        if self.current_capacity > self.maximum_capacity:
             raise ValueError('Current capacity cannot exceed maximum capacity')
-        return v
+        return self
     
     def available_spots(self) -> int:
         """Calculate number of available parking spots."""

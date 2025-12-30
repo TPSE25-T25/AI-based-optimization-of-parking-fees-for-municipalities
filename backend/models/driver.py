@@ -2,7 +2,7 @@
 Driver model for parking simulation
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Tuple
 from decimal import Decimal
 
@@ -12,6 +12,18 @@ class Driver(BaseModel):
     Driver model for parking simulation.
     Represents an individual seeking parking with specific preferences and constraints.
     """
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": 1,
+                "pseudonym": "SimUser001",
+                "max_parking_price": "5.00",
+                "starting_position": [52.5200, 13.4050],
+                "destination": [52.5170, 13.4003],
+                "desired_parking_time": 120
+            }
+        }
+    )
     
     # Unique identification
     id: int = Field(..., description="Unique driver identifier")
@@ -26,18 +38,6 @@ class Driver(BaseModel):
     
     # Time preference
     desired_parking_time: int = Field(..., gt=0, description="Desired parking duration in minutes")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "id": 1,
-                "pseudonym": "SimUser001",
-                "max_parking_price": "5.00",
-                "starting_position": [52.5200, 13.4050],
-                "destination": [52.5170, 13.4003],
-                "desired_parking_time": 120
-            }
-        }
     
     def distance_to_travel(self) -> float:
         """
