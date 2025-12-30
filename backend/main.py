@@ -3,7 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
 
-app = FastAPI(title="Parking Fee Optimization API", version="1.0.0")
+app = FastAPI(
+    title="Parking Fee Optimization API", 
+    version="1.0.0",
+    description="API for parking fee optimization"
+)
 
 # Configure CORS
 app.add_middleware(
@@ -13,6 +17,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # Pydantic models
 class ParkingZone(BaseModel):
