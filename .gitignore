@@ -207,6 +207,7 @@ marimo/_lsp/
 __marimo__/
 
 
-/frontend/node_modules/
-/frontend/dist/
-/backend/dist/
+/frontend/node_modules/*
+/frontend/dist/*
+/backend/dist/*
+.vscode/*
