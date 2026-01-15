@@ -2,18 +2,32 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
 
+import ParkingSpot from './components/ParkingSpot';
+import MenuPanel from './components/MenuPanel';
+import InfoPanel from './components/InfoPanel';
+
 const API_BASE_URL = 'http://localhost:8000';
 
 function App() {
+  // Keep existing data hooks for the rest of the UI
   const [zones, setZones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selectedZone, setSelectedZone] = useState('');
-  const [targetOccupancy, setTargetOccupancy] = useState(0.75);
-  const [optimizationResult, setOptimizationResult] = useState(null);
-  const [optimizing, setOptimizing] = useState(false);
 
-  // Fetch parking zones on component mount
+  // Map-specific UI state
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [weights, setWeights] = useState({ Safety: 50, Accessibility: 20, Revenue: 30 });
+  const [selectedSpotId, setSelectedSpotId] = useState(null);
+
+  // Parking spots positions (percentages)
+  const parkingSpots = [
+    { id: 1, label: 'P1', left: 20, top: 30 },
+    { id: 2, label: 'P2', left: 40, top: 60 },
+    { id: 3, label: 'P3', left: 60, top: 25 },
+    { id: 4, label: 'P4', left: 75, top: 55 },
+    { id: 5, label: 'P5', left: 50, top: 75 }
+  ];
+
   useEffect(() => {
     fetchZones();
   }, []);
@@ -25,40 +39,10 @@ function App() {
       setZones(response.data);
       setError(null);
     } catch (err) {
-      setError('Failed to fetch parking zones. Make sure the backend server is running.');
-      console.error('Error fetching zones:', err);
+      // It's OK if the backend isn't available for the map — keep UI usable
+      setError(null);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleOptimization = async (e) => {
-    e.preventDefault();
-    
-    if (!selectedZone) {
-      setError('Please select a parking zone');
-      return;
-    }
-
-    try {
-      setOptimizing(true);
-      setOptimizationResult(null);
-      setError(null);
-
-      const response = await axios.post(`${API_BASE_URL}/optimize`, {
-        zone_id: parseInt(selectedZone),
-        target_occupancy: targetOccupancy
-      });
-
-      setOptimizationResult(response.data);
-      
-      // Refresh zones to see updated suggested fees
-      await fetchZones();
-    } catch (err) {
-      setError('Failed to optimize parking fee. Please try again.');
-      console.error('Error optimizing fee:', err);
-    } finally {
-      setOptimizing(false);
     }
   };
 
@@ -97,96 +81,55 @@ function App() {
     return (
       <div className="App">
         <div className="container">
-          <div className="loading">Loading parking zones...</div>
+          <div className="loading">Loading...</div>
         </div>
       </div>
     );
   }
 
+  const selectedSpot = parkingSpots.find(s => s.id === selectedSpotId) || null;
+
   return (
     <div className="App">
-      <header className="header">
-        <h1>🅿️ Parking Fee Optimization System</h1>
-        <p>AI-based optimization of parking fees for municipalities</p>
-      </header>
-      
-      <div className="container">
-        {error && (
-          <div className="error">
-            {error}
-          </div>
-        )}
-        
-        <h2>Current Parking Zones</h2>
-        <div className="zones-grid">
-          {zones.map(zone => (
-            <ZoneCard key={zone.id} zone={zone} />
-          ))}
+      <div className="top-info">
+        <div className="top-left">
+          <h1>🅿️ Parking Fee Optimization</h1>
+          <p className="muted">Prototype UI — Map view and controls</p>
         </div>
-        
-        <div className="optimization-section">
-          <h2>Fee Optimization</h2>
-          <form onSubmit={handleOptimization}>
-            <div className="form-group">
-              <label htmlFor="zone-select">Select Parking Zone:</label>
-              <select
-                id="zone-select"
-                value={selectedZone}
-                onChange={(e) => setSelectedZone(e.target.value)}
-              >
-                <option value="">-- Select a zone --</option>
-                {zones.map(zone => (
-                  <option key={zone.id} value={zone.id}>
-                    {zone.name} (Current: ${zone.current_fee})
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            <div className="form-group">
-              <label htmlFor="target-occupancy">Target Occupancy Rate:</label>
-              <input
-                id="target-occupancy"
-                type="number"
-                min="0.1"
-                max="1.0"
-                step="0.05"
-                value={targetOccupancy}
-                onChange={(e) => setTargetOccupancy(parseFloat(e.target.value))}
-              />
-              <small>({(targetOccupancy * 100).toFixed(0)}%)</small>
-            </div>
-            
-            <button 
-              type="submit" 
-              className="btn"
-              disabled={optimizing || !selectedZone}
-            >
-              {optimizing ? 'Optimizing...' : 'Optimize Fee'}
-            </button>
-          </form>
-          
-          {optimizationResult && (
-            <div className="result">
-              <h3>Optimization Result</h3>
-              <p><strong>Zone:</strong> {optimizationResult.message}</p>
-              <p><strong>Current Fee:</strong> ${optimizationResult.current_fee}</p>
-              <p><strong>Suggested Fee:</strong> ${optimizationResult.suggested_fee}</p>
-              <p><strong>Current Occupancy:</strong> {(optimizationResult.current_occupancy * 100).toFixed(1)}%</p>
-              <p><strong>Target Occupancy:</strong> {(optimizationResult.target_occupancy * 100).toFixed(1)}%</p>
-            </div>
-          )}
-        </div>
-        
-        <div style={{ textAlign: 'center', marginTop: '30px', color: '#666' }}>
-          <p>
-            <button className="btn" onClick={fetchZones}>
-              🔄 Refresh Data
-            </button>
-          </p>
-          <small>Backend API: {API_BASE_URL}</small>
+        <div className="top-right-info">
+          <small>Backend: {API_BASE_URL}</small>
         </div>
       </div>
+
+      <div className="map-wrapper">
+        <div className="map-area">
+          {/* Menu button in top-right */}
+          <button className="menu-toggle" onClick={() => setMenuOpen(true)}>☰</button>
+
+          {/* Menu panel / sliders */}
+          <MenuPanel open={menuOpen} onClose={() => setMenuOpen(false)} weights={weights} setWeights={setWeights} />
+
+          {/* Parking spots */}
+          {parkingSpots.map(spot => (
+            <ParkingSpot
+              key={spot.id}
+              id={spot.id}
+              label={spot.label}
+              left={spot.left}
+              top={spot.top}
+              onClick={(id) => setSelectedSpotId(id)}
+              isSelected={selectedSpotId === spot.id}
+            />
+          ))}
+
+          {/* Info panel */}
+          <InfoPanel spot={selectedSpot} onClose={() => setSelectedSpotId(null)} />
+        </div>
+      </div>
+
+      <footer className="footer-note">
+        <small>Click a parking spot (P1–P5) to view details. Sliders are placeholders for weights.</small>
+      </footer>
     </div>
   );
 }
