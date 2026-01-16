@@ -2,12 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
+from schemas.optimization import ParkingZoneInput, OptimizationSettings, OptimizationRequest, OptimizationResponse
+from services.nsga3_optimizer import NSGA3Optimizer
 
-app = FastAPI(
-    title="Parking Fee Optimization API", 
-    version="1.0.0",
-    description="API for parking fee optimization"
-)
+
+app = FastAPI(title="Parking Fee Optimization API", version="1.0.0")
 
 # Configure CORS
 app.add_middleware(
@@ -59,36 +58,20 @@ async def get_parking_zone(zone_id: int):
             return zone
     return {"error": "Zone not found"}
 
-@app.post("/optimize")
-async def optimize_fee(request: FeeOptimizationRequest):
-    """Optimize parking fee for a specific zone based on target occupancy"""
-    for zone in parking_zones:
-        if zone.id == request.zone_id:
-            # Simple optimization algorithm (for demonstration)
-            current_occupancy = zone.occupancy_rate
-            target = request.target_occupancy
-            
-            if current_occupancy > target:
-                # Reduce occupancy by increasing fee
-                optimization_factor = current_occupancy / target
-                optimized_fee = zone.current_fee * optimization_factor
-            else:
-                # Increase occupancy by decreasing fee
-                optimization_factor = target / current_occupancy
-                optimized_fee = zone.current_fee / optimization_factor
-            
-            zone.suggested_fee = round(optimized_fee, 2)
-            
-            return {
-                "zone_id": zone.id,
-                "current_fee": zone.current_fee,
-                "suggested_fee": zone.suggested_fee,
-                "current_occupancy": current_occupancy,
-                "target_occupancy": target,
-                "message": f"Fee optimization completed for {zone.name}"
-            }
+@app.post("/optimize", response_model=OptimizationResponse)
+async def optimize_fee(request: OptimizationRequest):
+    """
+    Endpoint to execute the NSGA-III optimization algorithm.
+    """
+    #Create an instance of the NSGA3Optimizer
+    optimizer = NSGA3Optimizer()
     
-    return {"error": "Zone not found"}
+    #Call the optimize method and return the result
+    return optimizer.optimize(request)
+
+
+
+
 
 if __name__ == "__main__":
     import uvicorn
