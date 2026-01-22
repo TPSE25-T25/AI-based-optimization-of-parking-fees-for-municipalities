@@ -53,107 +53,110 @@ class NSGA3Optimizer:
 
     def _calculate_physics(self, prices: np.ndarray, data: dict) -> dict:
         """
-        Central calculation engine. 
-        Computes physical changes (occupancy, revenue) AND objective scores.
+        Central Physics Engine.
+        Simulates user behavior based on price elasticity, loss aversion, and user groups.
+        Uses NumPy vectorization for high-performance batch processing.
         """
         
-        # 1. Physics Calculations (The logic you extracted)
-
-        # Calculate percentage price change
+        # 1. Calculate Price Delta
+        # Calculate percentage change relative to current price.
+        # We add 1e-6 (epsilon) to current_prices to prevent "Division by Zero" errors.
         price_change_pct = (prices - data["current_prices"]) / (data["current_prices"] + 1e-6)
         
-        # Calculate demand change based on elasticity
-        demand_change_pct = data["elasticities"] * price_change_pct
+        # ---------------------------------------------------------
+        # Behavioral Economics Logic (Asymmetric Elasticity)
+        # ---------------------------------------------------------
         
-        # Calculate new occupancy (clamped between 0% and 100%)
-        new_occupancy = np.clip(data["current_occupancy"] * (1 + demand_change_pct), 0.0, 1.0)
+        # A) Loss Aversion:
+        # If price increases (>0), users react 20% more strongly (factor 1.2).
+        # If price drops, the reaction is standard/dampened (factor 0.8).
+        sensitivity_factor = np.where(price_change_pct > 0, 1.2, 0.8)
         
-        # Calculate revenue for each zone
+        # B) User Group Split:
+        # Short-term users (Shoppers) react fully to price changes.
+        short_term_impact = data["elasticities"] * price_change_pct * sensitivity_factor
+        
+        # Long-term users (Commuters) are less sensitive (50% of elasticity) due to necessity.
+        long_term_impact  = (data["elasticities"] * 0.5) * price_change_pct * sensitivity_factor
+        
+        # C) Weighted Average Demand Change:
+        # Combine both groups based on the specific 'short_term_share' of each zone.
+        share_short = data["short_term_share"]
+        total_demand_change = (short_term_impact * share_short) + (long_term_impact * (1.0 - share_short))
+        
+        # ---------------------------------------------------------
+        # Physical Constraints & Results
+        # ---------------------------------------------------------
+        
+        # Calculate new occupancy rate based on demand change.
+        # np.clip enforces hard physical limits:
+        # - Min: 0.05 (5% "hard core" demand that never leaves)
+        # - Max: 1.00 (100% capacity limit, parkings cannot be overfull)
+        new_occupancy = np.clip(data["current_occupancy"] * (1 + total_demand_change), 0.05, 1.0)
+        
+        # Calculate absolute Revenue per zone (New Price * Capacity * New Occupancy)
         revenue_vector = prices * (data["capacities"] * new_occupancy)
 
-        # 2. Objective Calculations (Scoring)
+        # ---------------------------------------------------------
+        # Calculate Optimization Objectives (KPIs)
+        # ---------------------------------------------------------
         
-        # Obj 1: Total Revenue (Maximize -> Minimize negative sum)
+        # Objective 1: Maximize Total Revenue (Sum of all zones)
         f1_revenue = np.sum(revenue_vector)
         
-        # Obj 2: Occupancy Gap (Minimize distance to target)
-        # Note: 'target_occupancy' must be in the data dict
+        # Objective 2: Minimize Occupancy Gap (Deviation from target, e.g., 85%)
+        # We use np.abs() because being too empty is as bad as being too full.
         gap_vector = np.abs(new_occupancy - data["target_occupancy"])
         f2_gap = np.mean(gap_vector)
 
-        # Obj 3: Demand Drop (Minimize churn/loss)
-        # Only count negative demand changes
-        loss_vector = np.minimum(0, demand_change_pct)
+        # Objective 3: Minimize Demand Drop (Traffic reduction)
+        # We only count negative changes (losses). np.minimum(0, ...) filters out gains.
+        # Multiplied by -1 to make it a positive value for minimization logic.
+        loss_vector = np.minimum(0, total_demand_change)
         f3_drop = np.mean(loss_vector * -1)
 
-        # Obj 4: User Fairness (Maximize -> Minimize impact)
-        # Only count price increases, weighted by short-term share
+        # Objective 4: Maximize Fairness / Minimize Price Shock
+        # We focus on price increases only (np.maximum(0, ...)).
+        # Weighted by short_term_share since tourists/shoppers feel price hikes the most.
         impact_vector = np.maximum(0, price_change_pct) * data["short_term_share"]
         f4_fairness = np.mean(impact_vector)
 
-        # 3. Return everything in one package
+        # Return results packaged in a dictionary
         return {
             "objectives": [f1_revenue, f2_gap, f3_drop, f4_fairness], 
             "occupancy": new_occupancy,       
             "revenue": revenue_vector,        
-            "demand_change": demand_change_pct
-            }
+            "demand_change": total_demand_change
+        }
         
         
         
 
     def _simulate_scenario(self, prices: np.ndarray, request: OptimizationRequest) -> Tuple[float, float, float, float]:
         """
-        Internal Evaluation Function (The Simulation Core).
-        Calculates objectives based on price elasticity.
+        Internal Evaluation Wrapper.
+        Acts as a bridge between the Genetic Algorithm (pymoo) and the Physics Engine.
+        It reduces the complex simulation results down to the 4 specific scores (objectives) required by NSGA-III.
         """
         
-        data = self._convert_request_to_numpy(request)              # Convert request data to numpy arrays
+        # 1. Data Preparation
+        # Convert the hierarchical Pydantic object into flat, high-performance NumPy arrays.
+        data = self._convert_request_to_numpy(request)      
         
-        # Unpack vectors for easier reading
-        current_prices = data["current_prices"]                     
-        current_occupancy = data["current_occupancy"]
-        elasticities = data["elasticities"]
-        capacities = data["capacities"]
-        short_term_share = data["short_term_share"]
+        # 2. Physics Simulation
+        # Run the central calculation logic. 
+        # We pass the proposed 'prices' and the static 'data'.
+        results = self._calculate_physics(prices, data)
         
-        target_occ = request.settings.target_occupancy                  # Target occupancy from settings    
-
-        """  SIMULATION LOGIC """
-
-        # calculates percentage price change (New - Old) / Old for each zone
-        price_change_pct = (prices - current_prices) / (current_prices + 1e-6)
-
-        # calculates the new demand change based on elasticity
-        demand_change_pct = elasticities * price_change_pct
-
-        # calculates the new occupancy based on demand change
-        new_occupancy = current_occupancy * (1 + demand_change_pct)
-
-        # CRITICAL: Clamp values! Occupancy cannot be < 0% or > 100% (1.0)
-        # If math says 120%, we cut it off at 100%.
-        new_occupancy = np.clip(new_occupancy, 0.0, 1.0)
-
-        """ OBJECTIVE CALCULATIONS """
-
-        # Objective 1: Revenue (Maximize)
-        revenue_vector = prices * (capacities * new_occupancy)                  #vector of revenues for all zones
-        f1_total_revenue = np.sum(revenue_vector)                               #total revenue across all zones
-
-        # Objective 2: Occupancy Gap (Minimize)
-        gap_vector = np.abs(new_occupancy - target_occ)                         #vector of occupancy gaps for all zones
-        f2_occupancy_gap = np.mean(gap_vector)                                  # Average gap across all zones
-
-        # Objective 3: Demand Drop (Minimize)
-        loss_vector = np.minimum(0, demand_change_pct)                          #vector of demand drops (only negative changes)
-        f3_demand_drop = np.mean(loss_vector * -1)                              # Average demand drop across all zones (as positive value)
-
-
-        # Objective 4: User Group Balance (Maximize)
-        impact_vector = np.maximum(0, price_change_pct) * short_term_share      #vector of negative impacts on short-term users (only price increases)
-        f4_fairness = np.mean(impact_vector)                                    # Average impact across all zones
-
-        return f1_total_revenue, f2_occupancy_gap, f3_demand_drop, f4_fairness
+        # 3. Objective Extraction
+        # The physics engine returns detailed data (including occupancy per zone), 
+        # but the optimizer ONLY needs the 4 objective scores to grade this solution.
+        objs = results["objectives"]
+        
+        # 4. Return
+        # Unpack and return the objectives as a strict tuple of floats.
+        # Order: (Revenue, Occupancy Gap, Demand Drop, User Fairness)
+        return objs[0], objs[1], objs[2], objs[3]
 
 
     def optimize(self, request: OptimizationRequest) -> OptimizationResponse:
@@ -276,3 +279,82 @@ class NSGA3Optimizer:
             final_scenarios.append(scenario)                                    # Add scenario to the final list
 
         return OptimizationResponse(scenarios=final_scenarios)                  # Return all scenarios as the final response
+    
+
+    def select_best_solution_by_weights(self, response: OptimizationResponse, weights: dict) -> PricingScenario:
+        """
+        Selects the single best scenario from the Pareto Front based on user preferences.
+        It normalizes all objective values to a 0-1 scale to ensure fair comparison
+        between different units (Euros vs. Percentages).
+        
+        Args:
+            response: The result from optimize() containing all Pareto scenarios.
+            weights: A dictionary with user weights (0-100), e.g., {"revenue": 50, "occupancy": 50}
+        """
+        scenarios = response.scenarios
+        if not scenarios: return None
+
+        print(f"\n⚖️  Calculating best compromise for weights: {weights}")
+
+        # ---------------------------------------------------------
+        # 1. Prepare Data for Normalization (Min-Max Scaling)
+        # ---------------------------------------------------------
+        
+        # Extract lists of all values to find the range (Min/Max) for each objective.
+        revenues = [s.score_revenue for s in scenarios]
+        gaps = [s.score_occupancy_gap for s in scenarios]
+        drops = [s.score_demand_drop for s in scenarios]
+        balances = [s.score_user_balance for s in scenarios]
+
+        # Determine boundaries. 
+        # This is needed to scale a value like "5000€" down to "0.8" relative to the others.
+        min_rev, max_rev = min(revenues), max(revenues)
+        min_gap, max_gap = min(gaps), max(gaps)
+        min_drop, max_drop = min(drops), max(drops)
+        min_bal, max_bal = min(balances), max(balances)
+
+        best_score = -float('inf')
+        best_scenario = None
+
+        # ---------------------------------------------------------
+        # 2. Score Each Scenario
+        # ---------------------------------------------------------
+        for s in scenarios:
+            
+            # --- A. Normalize Values (Scale 0.0 to 1.0) ---
+            
+            # Objective: MAXIMIZE Revenue
+            # Formula: (Value - Min) / (Max - Min)
+            # Result: 1.0 means this is the scenario with the highest revenue.
+            norm_rev = (s.score_revenue - min_rev) / (max_rev - min_rev) if max_rev > min_rev else 1.0
+            
+            # Objective: MINIMIZE Gap
+            # Formula: 1.0 - (Standard Normalization)
+            # Result: We invert the scale because "Small Gap" is good. 1.0 means perfect target hit.
+            norm_gap = 1.0 - ((s.score_occupancy_gap - min_gap) / (max_gap - min_gap)) if max_gap > min_gap else 1.0
+
+            # Objective: MINIMIZE Demand Drop
+            # Result: Invert scale. 1.0 means "No Drop" (Best case), 0.0 means "High Drop".
+            norm_drop = 1.0 - ((s.score_demand_drop - min_drop) / (max_drop - min_drop)) if max_drop > min_drop else 1.0
+
+            # Objective: MAXIMIZE Fairness (User Balance)
+            # Result: 1.0 means "Very Fair", 0.0 means "Unfair".
+            norm_bal = (s.score_user_balance - min_bal) / (max_bal - min_bal) if max_bal > min_bal else 1.0
+
+            # --- B. Apply User Weights ---
+            # Multiply normalized scores with user preferences (e.g., 0.5 for 50%).
+            # .get("key", 0) ensures that if a weight is missing, it counts as 0%.
+            score = (weights.get("revenue", 0) * norm_rev) + \
+                    (weights.get("occupancy", 0) * norm_gap) + \
+                    (weights.get("drop", 0) * norm_drop) + \
+                    (weights.get("fairness", 0) * norm_bal)
+            
+            # Track the winner
+            if score > best_score:
+                best_score = score
+                best_scenario = s
+
+        print(f"🏆 Winner: Scenario #{best_scenario.scenario_id} (Weighted Score: {best_score:.2f})")
+        print(f"   Details: Revenue={best_scenario.score_revenue}€ | Gap={best_scenario.score_occupancy_gap*100:.1f}%")
+        
+        return best_scenario
