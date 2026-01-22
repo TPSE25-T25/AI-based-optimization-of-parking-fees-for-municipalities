@@ -1,0 +1,176 @@
+import sys
+import os
+
+# --- 1. PATH CONFIGURATION ---
+# Add the 'backend' directory to the system path so Python can find our custom modules.
+current_file_path = os.path.abspath(__file__)           # .../backend/Tests/run_Karlsruhe.py
+current_dir = os.path.dirname(current_file_path)        # .../backend/Tests
+backend_dir = os.path.dirname(current_dir)              # .../backend
+
+if backend_dir not in sys.path:
+    sys.path.append(backend_dir)
+
+# Imports
+try:
+    import folium
+    from folium.plugins import MarkerCluster
+    
+    # Import our custom architecture classes
+    from backend.services.data.karlsruhe_loader import KarlsruheLoader
+    from services.nsga3_optimizer import NSGA3Optimizer
+    from schemas.optimization import OptimizationRequest, OptimizationSettings
+except ImportError as e:
+    print("\n❌ CRITICAL IMPORT ERROR!")
+    print(f"Could not load modules. Path set to: {sys.path}")
+    print(f"Error message: {e}")
+    sys.exit(1)
+
+# --- 2. USER PREFERENCE CONFIGURATION (FRONTEND SIMULATION) ---
+# This dictionary simulates the slider values a user would set in the web frontend.
+# The algorithm selects the best solution from the Pareto Front based on these weights.
+USER_WEIGHTS = {
+    "revenue": 60,      # Priority: Maximize Revenue
+    "occupancy": 20,    # Priority: Optimize Occupancy (Target 90%)
+    "drop": 10,         # Priority: Minimize Demand Drop (Don't scare away cars)
+    "fairness": 10,     # Priority: Maximize Fairness (Avoid price shocks)
+}
+
+# --- 3. MAIN EXECUTION PIPELINE ---
+def main():
+    print("\n" + "="*60)
+    print("🏙️  PARKING OPTIMIZATION KARLSRUHE (FULL END-TO-END TEST)")
+    print("="*60)
+
+    # ---------------------------------------------------------
+    # A. DATA INGESTION
+    # ---------------------------------------------------------
+    print("1️⃣  Initializing Data Loader (OSM + Pricing DB)...")
+    loader = KarlsruheLoader()
+    
+    # Load a large dataset to stress-test the system (OSM Fetching)
+    zones = loader.load_zones(limit=3500) 
+    
+    if not zones:
+        print("❌ Abort: No zones found.")
+        return
+
+    print(f"✅ {len(zones)} parking zones prepared for optimization.")
+
+    # ---------------------------------------------------------
+    # B. OPTIMIZATION SETUP
+    # ---------------------------------------------------------
+    print("\n2️⃣  Configuring AI Algorithm (NSGA-III)...")
+    
+    # Define settings for the genetic algorithm
+    settings = OptimizationSettings(
+        population_size=200,    # Number of candidate solutions per generation (higher = better diversity)
+        generations=100,        # Number of evolutionary iterations (higher = better convergence)
+        target_occupancy=0.90   # Strategic Goal: Aim for 90% utilization
+    )
+    
+    # Wrap everything in a request object (Validation via Pydantic)
+    req = OptimizationRequest(zones=zones, settings=settings)
+
+    # ---------------------------------------------------------
+    # C. EXECUTE OPTIMIZATION ENGINE
+    # ---------------------------------------------------------
+    print("🚀 Starting Calculation... (This may take a while for >1000 zones)")
+    optimizer = NSGA3Optimizer()
+    
+    # Run the genetic algorithm. 
+    # Result: A set of Pareto-optimal scenarios (e.g., 9-15 solutions).
+    response = optimizer.optimize(req)
+    
+    # ---------------------------------------------------------
+    # D. DECISION MAKING (A Posteriori)
+    # ---------------------------------------------------------
+    print(f"\n⚖️  Applying User Weights: {USER_WEIGHTS}")
+    
+    # Select the single best scenario that matches the USER_WEIGHTS defined above.
+    best_scenario = optimizer.select_best_solution_by_weights(response, USER_WEIGHTS)
+    
+    if not best_scenario:
+        print("❌ Error: No suitable solution found.")
+        return
+
+    print("\n" + "-"*60)
+    print(f"🏁 WINNING RESULT (Scenario #{best_scenario.scenario_id})")
+    print(f"💰 Revenue Score:      {best_scenario.score_revenue:.2f} €")
+    print(f"🚗 Ø Occupancy Gap:    {best_scenario.score_occupancy_gap*100:.2f}%")
+    print("-" * 60)
+
+    # ---------------------------------------------------------
+    # E. VISUALIZATION (Map Generation)
+    # ---------------------------------------------------------
+    print("\n3️⃣  Generating interactive map...")
+    
+    # Merge the optimized results back into the GeoDataFrame for plotting
+    res_gdf = loader.get_gdf_with_results(best_scenario.zones)
+    
+    if res_gdf.empty:
+        print("⚠️ Warning: GeoDataFrame is empty.")
+        return
+
+    # Initialize Folium Map centered on Karlsruhe
+    m = folium.Map(location=[49.0069, 8.4037], zoom_start=14, tiles="cartodbpositron")
+    cluster = MarkerCluster().add_to(m)
+
+    # Iterate through zones to add markers
+    for idx, row in res_gdf.iterrows():
+        new_fee = row['new_fee']
+        old_fee = row['old_fee']
+        
+        # Determine Color Logic based on price change
+        diff = new_fee - old_fee
+        if diff > 0.1:
+            color = 'red'       # Price Hike (Expensive)
+            trend = "📈 Higher"
+        elif diff < -0.1:
+            color = 'green'     # Price Drop (Cheaper)
+            trend = "📉 Lower"
+        else:
+            color = 'blue'      # Stable
+            trend = "➡️ Stable"
+
+        # Create HTML Popup content
+        popup_html = f"""
+        <div style="font-family: Arial; min-width: 150px;">
+            <b>{row.get('name', 'Zone')}</b><hr>
+            Status: <b>{trend}</b><br>
+            Old: {old_fee:.2f} €<br>
+            New: <b>{new_fee:.2f} €</b>
+        </div>
+        """
+
+        # Add marker to map cluster
+        folium.CircleMarker(
+            location=[row.geometry.centroid.y, row.geometry.centroid.x],
+            radius=6,
+            color=color,
+            fill=True,
+            fill_opacity=0.7,
+            popup=folium.Popup(popup_html, max_width=200)
+        ).add_to(cluster)
+
+    # Save Map to disk
+    output_filename = "karlsruhe_result.html"
+    output_path = os.path.join(current_dir, output_filename)
+    m.save(output_path)
+    print(f"✅ Map saved: {output_path}")
+
+    # ---------------------------------------------------------
+    # F. DATA EXPORT
+    # ---------------------------------------------------------
+    print("\n4️⃣  Exporting Data...")
+    csv_path = os.path.join(current_dir, "karlsruhe_superset.csv")
+    
+    # Export detailed CSV for external analysis (Superset, Tableau, Excel)
+    loader.export_results_for_superset(best_scenario.zones, csv_path)
+    print(f"✅ CSV exported: {csv_path}")
+
+    print("\n" + "="*60)
+    print("🎉 PROCESS FINISHED SUCCESSFULLY")
+
+if __name__ == "__main__":
+    main()
+    
