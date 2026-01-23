@@ -16,7 +16,7 @@ try:
     from folium.plugins import MarkerCluster
     
     # Import our custom architecture classes
-    from backend.services.data.karlsruhe_loader import KarlsruheLoader
+    from services.data.karlsruhe_loader import KarlsruheLoader
     from services.nsga3_optimizer import NSGA3Optimizer
     from schemas.optimization import OptimizationRequest, OptimizationSettings
 except ImportError as e:
