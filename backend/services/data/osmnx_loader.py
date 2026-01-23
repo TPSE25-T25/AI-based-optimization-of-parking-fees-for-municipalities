@@ -363,6 +363,9 @@ class OSMnxParkingLoader:
             zone_id=zone_id,
             name=name,
             capacity=int(capacity),
+            # [NEU] Hier fehlten die Koordinaten:
+            lat=lat,
+            lon=lon,
             current_fee=round(price, 2),
             current_occupancy=round(min(1.0, max(0.0, occupancy)), 2),
             min_fee=1.0,

@@ -30,24 +30,22 @@ class NSGA3Optimizer:
         """
         Helper Method: Converts the complex Pydantic request object into flat Numpy arrays.
         """
-        zones = request.zones                                                       # List of all zones to be optimized
+        zones = request.zones
         
-        data = {                                                                    #Dictionary to hold all extracted data  
+        data = {
+            "current_prices": np.array([z.current_fee for z in zones]),
             
-            "current_prices": np.array([z.current_fee for z in zones]),             # Current prices for all zones 
+            # [NEU] Wir laden die Cluster IDs
+            "cluster_ids": np.array([z.cluster_group_id for z in zones]),
             
-            
-            "min_fees": np.array([z.min_fee for z in zones]),                       # minimum fees for all zones
-            "max_fees": np.array([z.max_fee for z in zones]),                       # maximum fees for all zones
-            
-            
-            "capacities": np.array([z.capacity for z in zones]),                    # capacities of all zones
-            "elasticities": np.array([z.elasticity for z in zones]),                # elasticities of all zones
-            "current_occupancy": np.array([z.current_occupancy for z in zones]),    # current occupancy of all zones
-            "short_term_share": np.array([z.short_term_share for z in zones]),       # short term share of all zones
-            "target_occupancy": request.settings.target_occupancy                     # target occupancy from settings
+            "min_fees": np.array([z.min_fee for z in zones]),
+            "max_fees": np.array([z.max_fee for z in zones]),
+            "capacities": np.array([z.capacity for z in zones]),
+            "elasticities": np.array([z.elasticity for z in zones]),
+            "current_occupancy": np.array([z.current_occupancy for z in zones]),
+            "short_term_share": np.array([z.short_term_share for z in zones]),
+            "target_occupancy": request.settings.target_occupancy
         }
-        
         return data
 
 
@@ -160,54 +158,65 @@ class NSGA3Optimizer:
 
 
     def optimize(self, request: OptimizationRequest) -> OptimizationResponse:
+        
+        # [NEU] Schritt 1: Cluster analysieren
+        # Wir holen uns die Rohdaten, um die Gruppen zu verstehen
+        data = self._convert_request_to_numpy(request)
+        cluster_ids = data["cluster_ids"]
+        unique_clusters = np.unique(cluster_ids)
+        
+        # Anzahl der Entscheidungsvariablen = Anzahl der Cluster (statt Anzahl der Zonen)
+        n_vars = len(unique_clusters)
+        
+        # [NEU] Schritt 2: Sichere Grenzen (xl, xu) pro Cluster berechnen
+        # Wir müssen sicherstellen, dass der Cluster-Preis für ALLE Zonen darin legal ist.
+        xl = np.zeros(n_vars)
+        xu = np.zeros(n_vars)
+        
+        for i, c_id in enumerate(unique_clusters):
+            # Maske für alle Zonen in diesem Cluster
+            mask = (cluster_ids == c_id)
+            # Wir nehmen das HÖCHSTE Minimum und das NIEDRIGSTE Maximum der Gruppe
+            xl[i] = np.max(data["min_fees"][mask])
+            xu[i] = np.min(data["max_fees"][mask])
+            
+            # Fallback falls Daten unlogisch sind
+            if xl[i] > xu[i]: xu[i] = xl[i]
 
-        # Define the search space: xl (Lower Bound) and xu (Upper Bound) for each zone.
-        # The algorithm is forced to find prices strictly between min_fee and max_fee.
-        xl = np.array([z.min_fee for z in request.zones])                       
-        xu = np.array([z.max_fee for z in request.zones])
-
-        # Number of decision variables (one price per zone)
-        n_vars = len(request.zones) 
-
-        """ The ParkingProblem class acts as an adapter (or bridge). It translates the language of mathematics (pymoo library) 
-        into the language of our business logic (parking fees and revenue). 
-        It encapsulates our constraints, boundaries, and the simulation function into a standardized format that the algorithm can understand and execute"""
+        """ The ParkingProblem class acts as an adapter... """
         class ParkingProblem(ElementwiseProblem):
-            def __init__(self, optimizer_instance, req):
-                
-                # Configurate the Pyymoo base class (ElementwiseProblem)
-                # We pass our specific parameters (n_var, n_obj, xl, xu) to the parent constructor -> allows pymoo to understand our problem setup
+            def __init__(self, optimizer_instance, req, u_clusters, c_ids):
+                # Wir nutzen n_var=n_vars (Cluster Anzahl), nicht Zonen Anzahl
                 super().__init__(n_var=n_vars, n_obj=4, n_ieq_constr=0, xl=xl, xu=xu)
-                
-                # Store references to the optimizer instance and request for later use
                 self.optimizer = optimizer_instance
                 self.req = req
-
-            def _evaluate(self, x: np.ndarray, out: Dict[str, Any], *args, **kwargs):
-
-                # Evaluate a single solution 'x' (a set of prices for all zones)
-                # Calls the optimizer's simulation function to get objective values
-                f1, f2, f3, f4 = self.optimizer._simulate_scenario(x, self.req)
                 
-                # Store the results in the output dictionary; note that f1(Revenue) is negated because pymoo minimizes by default
+                # [NEU] Mapping Informationen speichern
+                self.unique_clusters = u_clusters
+                self.zone_cluster_map = c_ids
+
+            def _evaluate(self, x, out, *args, **kwargs):
+                # x sind hier die CLUSTER-Preise (wenige). 
+                # Wir müssen sie auf ZONEN-Preise (viele) erweitern, bevor wir simulieren.
+                
+                full_prices = np.zeros_like(self.zone_cluster_map, dtype=float)
+                for i, c_id in enumerate(self.unique_clusters):
+                    full_prices[self.zone_cluster_map == c_id] = x[i]
+
+                # Jetzt rufen wir die existierende Simulation mit den "aufgeblasenen" Preisen auf
+                f1, f2, f3, f4 = self.optimizer._simulate_scenario(full_prices, self.req)
+                
                 out["F"] = [-f1, f2, f3, f4]
 
-        # create an instance of the problem
-        problem = ParkingProblem(self, request)
-
+        # create an instance of the problem (mit den neuen Mapping-Daten)
+        problem = ParkingProblem(self, request, unique_clusters, cluster_ids)
 
         """"Algorithm Cofiguration (NSGA-III)"""
-        
-        # Create reference directions for 4 objectives
-            # das-dennis method generates well-distributed reference points in the objective space
-            # n_partitions controls the density of these points
-            # More partitions = more reference points = potentially better diversity in solutions
-        ref_dirs = get_reference_directions("das-dennis", 4, n_partitions=8)               
-
+        # ... (Dieser Teil bleibt EXAKT gleich wie vorher) ...
+        ref_dirs = get_reference_directions("das-dennis", 4, n_partitions=8)
         pop_size = request.settings.population_size
         n_gen = request.settings.generations
-
-        # Configure the NSGA-III algorithm with operators and parameters
+        
         algorithm = NSGA3(
             pop_size=pop_size,
             ref_dirs=ref_dirs,
@@ -217,23 +226,11 @@ class NSGA3Optimizer:
             mutation=PM(prob=1.0/n_vars, eta=20),
             eliminate_duplicates=True
         )
+        termination = get_termination("n_gen", n_gen)
 
-        termination = get_termination("n_gen", n_gen) # stops after a fixed number of generations
-
-       
-        """ Execution of the Optimization Algorithm (NSGA-III)"""
-        
-        # -problem: Defines WHAT to optimize( variables, boundaries, simulation logic)
-        # -algorithm: Defines HOW to optimize (the NSGA-III genetic algorithm with its operators)
-        # -termination: Defines WHEN to stop (after a fixed number of generations here)
-        # -seed: For reproducibility
-        # -verbose: Print progress to console
-
-        print(" Starting NSGA-III Execution ")
-        res = minimize(problem, algorithm, termination, seed=1, verbose=True)               # Run the optimization
+        print(" Starting NSGA-III Execution (Cluster Mode) ")
+        res = minimize(problem, algorithm, termination, seed=1, verbose=True)
         print(f" Optimization finished! Found {len(res.X)} solutions. ")
-
-       
 
         # Prepare the final response with all scenarios found
         final_scenarios = []
@@ -241,44 +238,42 @@ class NSGA3Optimizer:
         X = np.atleast_2d(res.X)
         F = np.atleast_2d(res.F)
 
-        # go through all solutions found by NSGA-III; (i, (prices, objectives))
-        for i, (prices, objectives) in enumerate(zip(X, F)):
+        for i, (cluster_prices, objectives) in enumerate(zip(X, F)):
             
+            # [NEU] Mapping auch hier für das Ergebnis anwenden
+            # Aus Cluster-Preisen wieder Zonen-Preise machen für die Simulation
+            full_zone_prices = np.zeros_like(cluster_ids, dtype=float)
+            for k, c_id in enumerate(unique_clusters):
+                full_zone_prices[cluster_ids == c_id] = cluster_prices[k]
             
-            # convert request data to numpy arrays for simulation
-            data = self._convert_request_to_numpy(request)
-            
-            # run physics calculation to get detailed results for this price set
-            simulation_results = self._calculate_physics(prices, data)
+            # run physics calculation with FULL prices
+            simulation_results = self._calculate_physics(full_zone_prices, data)
 
-            # Extract the necessary arrays from the returned dictionary using their keys
             new_occupancy = simulation_results["occupancy"]
             revenue_vector = simulation_results["revenue"]
-            
-
 
             # Build zone results for this scenario
             zone_results = []
-            for j, zone in enumerate(request.zones):                            # Iterate through each zone
-                zone_results.append(OptimizedZoneResult(                        # Build result object for each zone
+            for j, zone in enumerate(request.zones):
+                zone_results.append(OptimizedZoneResult(
                     zone_id=zone.zone_id,
-                    new_fee=round(prices[j], 2),
+                    new_fee=round(full_zone_prices[j], 2), # Hier nutzen wir den expandierten Preis
                     predicted_occupancy=float(new_occupancy[j]),
                     predicted_revenue=round(revenue_vector[j], 2)
                 ))
 
             # Build the complete scenario
-            scenario = PricingScenario(                                         # Build scenario object
+            scenario = PricingScenario(
                 scenario_id=i + 1,
                 zones=zone_results,
-                score_revenue=round(objectives[0] * -1, 2), # Negierung aufheben!
+                score_revenue=round(objectives[0] * -1, 2),
                 score_occupancy_gap=round(objectives[1], 4),
                 score_demand_drop=round(objectives[2], 4),
                 score_user_balance=round(1.0 -objectives[3], 4)
             )
-            final_scenarios.append(scenario)                                    # Add scenario to the final list
+            final_scenarios.append(scenario)
 
-        return OptimizationResponse(scenarios=final_scenarios)                  # Return all scenarios as the final response
+        return OptimizationResponse(scenarios=final_scenarios)
     
 
     def select_best_solution_by_weights(self, response: OptimizationResponse, weights: dict) -> PricingScenario:
