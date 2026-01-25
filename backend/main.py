@@ -2,8 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
-from schemas.optimization import ParkingZoneInput, OptimizationSettings, OptimizationRequest, OptimizationResponse
-from services.nsga3_optimizer import NSGA3Optimizer
+from backend.services.optimizer.schemas.optimization_schema import ParkingZoneInput, OptimizationSettings, OptimizationRequest, OptimizationResponse
+from backend.services.optimizer.nsga3_optimizer_elasticity import NSGA3OptimizerElasticity
 
 
 app = FastAPI(title="Parking Fee Optimization API", version="1.0.0")
@@ -64,7 +64,7 @@ async def optimize_fee(request: OptimizationRequest):
     Endpoint to execute the NSGA-III optimization algorithm.
     """
     #Create an instance of the NSGA3Optimizer
-    optimizer = NSGA3Optimizer()
+    optimizer = NSGA3OptimizerElasticity()
     
     #Call the optimize method and return the result
     return optimizer.optimize(request)

@@ -9,16 +9,20 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 import osmnx as ox
+
+from sklearn.cluster import KMeans
 from shapely.geometry import Point
 from typing import List, Dict, Optional, Tuple
-from schemas.optimization import ParkingZoneInput
+from decimal import Decimal
+from backend.services.optimizer.schemas.optimization_schema import ParkingZoneInput
+from backend.models.city import PointOfInterest
 import urllib3
 
 # Disable SSL warnings (OSM/Network specific)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
-class OSMnxParkingLoader:
+class OSMnxLoader:
     """
     Generic Data Ingestion Service for any city using OpenStreetMap.
 
@@ -105,6 +109,170 @@ class OSMnxParkingLoader:
         print("   (This might take 10-20 seconds, please wait...)")
 
         return self._load_from_osm(limit)
+
+    def cluster_zones(self, raw_zones) -> List[ParkingZoneInput]:     
+        if not raw_zones:
+            return []
+
+        # 2. Prepare data for K-Means (coordinate matrix)
+        # Create an array [[lat, lon], [lat, lon], ...]
+        coords = np.array([[z.position[0], z.position[1]] for z in raw_zones])
+
+        # Safety check: If all coordinates are 0 (error in OSM loader),
+        # use a fallback to prevent the code from crashing.
+        if np.all(coords == 0):
+            print("⚠️ Warning: No geolocation found. Falling back to simple indexing.")
+            coords = np.arange(len(raw_zones)).reshape(-1, 1)
+
+        # 3. K-Means Configuration
+        # We don't want huge clusters. We say: On average 15 parking spots per cluster.
+        # This ensures fine-grained, realistic price zones.
+        n_clusters = max(1, int(len(raw_zones) / 15))
+        
+        print(f"🧩 Running K-Means Algorithm...")
+        print(f"   Input: {len(raw_zones)} Zones")
+        print(f"   Target: {n_clusters} Spatial Clusters")
+
+        # THE ALGORITHM
+        kmeans = KMeans(
+            n_clusters=n_clusters,
+            random_state=42,       # Fixed seed for reproducibility
+            n_init=10              # Algorithm runs 10x, takes the best result
+        )
+
+        # The real clustering happens here:
+        kmeans.fit(coords)
+
+        # 4. Results
+        # Note: Clustering is computed for future use (visualization, grouping)
+        # but not currently stored in ParkingZoneInput objects.
+        # The cluster labels can be accessed via kmeans.labels_ if needed later.
+
+        print(f"✅ Clustering complete. {n_clusters} spatial clusters identified.")
+        print(f"   Complexity reduction factor: {len(raw_zones)/n_clusters:.1f}x")
+        return raw_zones
+    
+    def load_pois(self, limit: int = 50) -> List[PointOfInterest]:
+        """
+        Load Points of Interest (POIs) from OpenStreetMap for driver destinations.
+
+        Fetches various POI categories that are common driver destinations:
+        - Shopping (malls, supermarkets, shops)
+        - Tourism (museums, attractions, monuments)
+        - Transportation hubs (train stations, bus terminals)
+        - Public buildings (town hall, library, post office)
+        - Entertainment (cinema, theater, restaurants)
+        - Education (universities, schools)
+        - Healthcare (hospitals, clinics)
+
+        Args:
+            limit: Maximum number of POIs to return
+
+        Returns:
+            List of PointOfInterest objects
+        """
+        print(f"📍 Loading Points of Interest for '{self.place_name}'...")
+
+        # Define POI categories to fetch from OSM
+        # These are the most common driver destinations
+        poi_tags = {
+            'amenity': [
+                'restaurant', 'cafe', 'fast_food',  # Dining
+                'cinema', 'theatre', 'library',      # Entertainment & Culture
+                'hospital', 'clinic', 'pharmacy',    # Healthcare
+                'bank', 'post_office', 'townhall',   # Services
+                'university', 'school', 'college'    # Education
+            ]
+        }
+
+        all_pois = []
+
+        try:
+            # Fetch POIs by category
+            for category, values in poi_tags.items():
+                try:
+                    tags = {category: values}
+                    gdf_poi = ox.features_from_place(self.place_name, tags)
+
+                    if not gdf_poi.empty:
+                        # Convert to lat/lon for centroids
+                        gdf_poi = gdf_poi.to_crs(epsg=4326)
+
+                        # Extract relevant POIs
+                        for _, row in gdf_poi.iterrows():
+                            # Get centroid for polygon/line features
+                            if row.geometry.geom_type in ['Polygon', 'MultiPolygon', 'LineString']:
+                                centroid = row.geometry.centroid
+                                lat, lon = centroid.y, centroid.x
+                            else:
+                                lat, lon = row.geometry.y, row.geometry.x
+
+                            # Get name (fallback to type if no name)
+                            name = row.get('name', f"{category.title()} {len(all_pois) + 1}")
+                            if pd.isna(name):
+                                poi_type = row.get(category, 'Unknown')
+                                name = f"{poi_type.replace('_', ' ').title()} {len(all_pois) + 1}"
+
+                            all_pois.append({
+                                'name': str(name),
+                                'lat': lat,
+                                'lon': lon,
+                                'category': category,
+                                'type': row.get(category, 'unknown')
+                            })
+
+                except Exception as e:
+                    print(f"   ⚠ Warning: Could not fetch {category} POIs: {e}")
+                    continue
+
+            # Prioritize central POIs (closer to city center)
+            if all_pois:
+                # Calculate distance from center
+                for poi in all_pois:
+                    dist = np.sqrt(
+                        (poi['lat'] - self.center_lat)**2 +
+                        (poi['lon'] - self.center_lon)**2
+                    ) * 111.0  # Approximate km
+                    poi['dist_from_center'] = dist
+
+                # Sort by distance (prioritize central locations)
+                all_pois.sort(key=lambda x: x['dist_from_center'])
+
+                # Take top N POIs
+                selected_pois = all_pois[:limit]
+
+                # Create PointOfInterest objects
+                poi_objects = []
+                for i, poi_data in enumerate(selected_pois, 1):
+                    poi_obj = PointOfInterest(
+                        id=i,
+                        pseudonym=poi_data['name'],
+                        position=(poi_data['lat'], poi_data['lon'])
+                    )
+                    poi_objects.append(poi_obj)
+
+                print(f"✅ Loaded {len(poi_objects)} Points of Interest")
+                print(f"   Categories: Shopping, Dining, Tourism, Healthcare, Education, Entertainment")
+
+                return poi_objects
+            else:
+                print("⚠ No POIs found. Using fallback city center POI.")
+                # Fallback: Create a single POI at city center
+                return [PointOfInterest(
+                    id=1,
+                    pseudonym="City Center",
+                    position=(self.center_lat, self.center_lon)
+                )]
+
+        except Exception as e:
+            print(f"❌ Error loading POIs: {e}")
+            print("   Using fallback city center POI.")
+            # Fallback: Create a single POI at city center
+            return [PointOfInterest(
+                id=1,
+                pseudonym="City Center",
+                position=(self.center_lat, self.center_lon)
+            )]
 
     def _get_price(self, name: str, dist_km: float) -> float:
         """
@@ -309,12 +477,12 @@ class OSMnxParkingLoader:
                 )
 
                 zones_input.append(zone)
-                self.zone_lookup[zone.zone_id] = zone
+                self.zone_lookup[zone.id] = zone
 
                 # Store for GeoDataFrame construction
                 geometries.append(Point(lon, lat))
-                ids.append(zone.zone_id)
-                names.append(zone.name)
+                ids.append(zone.id)
+                names.append(zone.pseudonym)
 
             # Create GeoDataFrame for visualization
             self.gdf = gpd.GeoDataFrame(
@@ -359,15 +527,16 @@ class OSMnxParkingLoader:
         Returns:
             Validated ParkingZoneInput object
         """
+        clamped_occupancy = min(1.0, max(0.0, occupancy))
+        current_capacity = int(capacity * clamped_occupancy)
+
         return ParkingZoneInput(
-            zone_id=zone_id,
-            name=name,
-            capacity=int(capacity),
-            # [NEU] Hier fehlten die Koordinaten:
-            lat=lat,
-            lon=lon,
-            current_fee=round(price, 2),
-            current_occupancy=round(min(1.0, max(0.0, occupancy)), 2),
+            id=zone_id,
+            pseudonym=name,
+            maximum_capacity=int(capacity),
+            current_capacity=current_capacity,
+            price=Decimal(str(round(price, 2))),
+            position=(lat, lon),
             min_fee=1.0,
             max_fee=8.0,
             elasticity=self.default_elasticity,
@@ -390,6 +559,8 @@ class OSMnxParkingLoader:
         res_gdf = self.gdf.copy()
         res_gdf["new_fee"] = np.nan
         res_gdf["old_fee"] = np.nan
+        res_gdf["predicted_occupancy"] = np.nan
+        res_gdf["predicted_revenue"] = np.nan
 
         opt_dict = {z.zone_id: z for z in optimized_zones}
 
@@ -401,7 +572,9 @@ class OSMnxParkingLoader:
                 if old:
                     # Round to 0.50 steps for cleaner UI visualization
                     res_gdf.at[idx, "new_fee"] = round(opt.new_fee * 2) / 2
-                    res_gdf.at[idx, "old_fee"] = old.current_fee
+                    res_gdf.at[idx, "old_fee"] = float(old.price)
+                    res_gdf.at[idx, "predicted_occupancy"] = opt.predicted_occupancy
+                    res_gdf.at[idx, "predicted_revenue"] = opt.predicted_revenue
 
         return res_gdf
 
@@ -431,16 +604,17 @@ class OSMnxParkingLoader:
             if g.empty:
                 continue
 
+            occupancy_rate_old = zone.current_capacity / zone.maximum_capacity if zone.maximum_capacity > 0 else 0.0
             base = {
                 "zone_id": zid,
-                "name": zone.name,
-                "capacity": zone.capacity,
+                "name": zone.pseudonym,
+                "capacity": zone.maximum_capacity,
                 "lat": g.geometry.y.values[0],
                 "lon": g.geometry.x.values[0],
                 "type": "Short-Term" if zone.short_term_share > 0.5 else "Commuter",
-                "price_old": zone.current_fee,
-                "occupancy_old": zone.current_occupancy,
-                "revenue_old": zone.current_fee * zone.capacity * zone.current_occupancy
+                "price_old": float(zone.price),
+                "occupancy_old": occupancy_rate_old,
+                "revenue_old": float(zone.price) * zone.maximum_capacity * occupancy_rate_old
             }
 
             if zid in opt_dict:
@@ -452,9 +626,9 @@ class OSMnxParkingLoader:
                     "price_new": new_p,
                     "occupancy_new": round(opt.predicted_occupancy, 2),
                     "revenue_new": round(opt.predicted_revenue, 2),
-                    "delta_price": round(new_p - zone.current_fee, 2),
+                    "delta_price": round(new_p - float(zone.price), 2),
                     "delta_revenue": round(opt.predicted_revenue - base["revenue_old"], 2),
-                    "delta_occupancy": round(opt.predicted_occupancy - zone.current_occupancy, 2)
+                    "delta_occupancy": round(opt.predicted_occupancy - occupancy_rate_old, 2)
                 })
 
             data.append(base)
@@ -463,13 +637,14 @@ class OSMnxParkingLoader:
         print(f"📊 CSV exported successfully: {filename}")
 
 
+
 # Convenience function for quick setup
 def create_city_loader(
     city_name: str,
     center_lat: float,
     center_lon: float,
     tariffs: Optional[Dict[str, float]] = None
-) -> OSMnxParkingLoader:
+) -> OSMnxLoader:
     """
     Quick factory function to create a city loader.
 
@@ -482,8 +657,10 @@ def create_city_loader(
     Returns:
         Configured OSMnxParkingLoader instance
     """
-    return OSMnxParkingLoader(
+    return OSMnxLoader(
         place_name=city_name,
         center_coords=(center_lat, center_lon),
         tariff_database=tariffs
     )
+    
+    

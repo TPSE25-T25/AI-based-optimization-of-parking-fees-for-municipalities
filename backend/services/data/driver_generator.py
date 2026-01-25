@@ -6,8 +6,8 @@ import random
 from typing import List, Tuple
 from decimal import Decimal
 
-from ...models.driver import Driver
-from ...models.city import City, PointOfInterest
+from backend.models.driver import Driver
+from backend.models.city import City, PointOfInterest
 
 
 class DriverGenerator:
@@ -34,25 +34,25 @@ class DriverGenerator:
     ) -> List[Driver]:
         """
         Generate random drivers with destinations at points of interest.
-        
+
         Args:
             count: Number of drivers to generate
-            city: City model containing POIs and canvas dimensions
+            city: City model containing POIs and geographic bounds
             price_range: (min, max) price drivers are willing to pay per hour
             parking_duration_range: (min, max) parking duration in minutes
-        
+
         Returns:
             List of generated drivers
         """
         drivers = []
-        
+
         if not city.point_of_interests:
             raise ValueError("City must have at least one point of interest for driver destinations")
-        
+
         for i in range(count):
-            # Random starting position within canvas
-            start_x = random.uniform(0, city.canvas[0])
-            start_y = random.uniform(0, city.canvas[1])
+            # Random starting position within city bounds (latitude, longitude)
+            start_lat = random.uniform(city.min_latitude, city.max_latitude)
+            start_lon = random.uniform(city.min_longitude, city.max_longitude)
             
             # Random destination from POIs
             destination_poi = random.choice(city.point_of_interests)
@@ -67,7 +67,7 @@ class DriverGenerator:
                 id=i + 1,
                 pseudonym=f"Driver_{i+1:04d}",
                 max_parking_price=max_price,
-                starting_position=(start_x, start_y),
+                starting_position=(start_lat, start_lon),
                 destination=destination_poi.position,
                 desired_parking_time=duration
             )
@@ -81,45 +81,45 @@ class DriverGenerator:
         count: int,
         city: City,
         cluster_centers: List[PointOfInterest],
-        cluster_radius: float = 50.0,
+        cluster_radius_deg: float = 0.01,
         price_range: Tuple[Decimal, Decimal] = (Decimal('2.0'), Decimal('10.0')),
         parking_duration_range: Tuple[int, int] = (30, 240)
     ) -> List[Driver]:
         """
         Generate drivers starting near specific cluster centers (e.g., residential areas).
-        
+
         Args:
             count: Number of drivers to generate
             city: City model
             cluster_centers: Points around which to cluster driver starting positions
-            cluster_radius: Maximum distance from cluster center
+            cluster_radius_deg: Maximum distance from cluster center in degrees (~0.01 deg ≈ 1km)
             price_range: (min, max) price drivers are willing to pay per hour
             parking_duration_range: (min, max) parking duration in minutes
-        
+
         Returns:
             List of generated drivers
         """
         drivers = []
-        
+
         if not city.point_of_interests:
             raise ValueError("City must have at least one point of interest for driver destinations")
-        
+
         if not cluster_centers:
             raise ValueError("Must provide at least one cluster center")
-        
+
         for i in range(count):
             # Pick random cluster center
             cluster = random.choice(cluster_centers)
-            
-            # Generate position near cluster center
+
+            # Generate position near cluster center using polar coordinates
             angle = random.uniform(0, 2 * 3.14159)
-            distance = random.uniform(0, cluster_radius)
-            start_x = cluster.position[0] + distance * random.uniform(-1, 1)
-            start_y = cluster.position[1] + distance * random.uniform(-1, 1)
-            
-            # Clamp to canvas bounds
-            start_x = max(0, min(city.canvas[0], start_x))
-            start_y = max(0, min(city.canvas[1], start_y))
+            distance = random.uniform(0, cluster_radius_deg)
+            start_lat = cluster.position[0] + distance * random.uniform(-1, 1)
+            start_lon = cluster.position[1] + distance * random.uniform(-1, 1)
+
+            # Clamp to city geographic bounds
+            start_lat = max(city.min_latitude, min(city.max_latitude, start_lat))
+            start_lon = max(city.min_longitude, min(city.max_longitude, start_lon))
             
             # Random destination from POIs (excluding starting cluster)
             destination_poi = random.choice(city.point_of_interests)
@@ -134,11 +134,11 @@ class DriverGenerator:
                 id=i + 1,
                 pseudonym=f"ClusteredDriver_{i+1:04d}",
                 max_parking_price=max_price,
-                starting_position=(start_x, start_y),
+                starting_position=(start_lat, start_lon),
                 destination=destination_poi.position,
                 desired_parking_time=duration
             )
-            
+
             drivers.append(driver)
         
         return drivers
@@ -167,10 +167,10 @@ class DriverGenerator:
         drivers = []
         
         for i in range(count):
-            # Random starting position
-            start_x = random.uniform(0, city.canvas[0])
-            start_y = random.uniform(0, city.canvas[1])
-            
+            # Random starting position within city bounds
+            start_lat = random.uniform(city.min_latitude, city.max_latitude)
+            start_lon = random.uniform(city.min_longitude, city.max_longitude)
+
             # 80% go to peak destination, 20% go elsewhere
             if random.random() < 0.8:
                 destination = peak_destination.position
@@ -190,11 +190,11 @@ class DriverGenerator:
                 id=i + 1,
                 pseudonym=f"RushHourDriver_{i+1:04d}",
                 max_parking_price=max_price,
-                starting_position=(start_x, start_y),
+                starting_position=(start_lat, start_lon),
                 destination=destination,
                 desired_parking_time=duration
             )
-            
+
             drivers.append(driver)
         
         return drivers
@@ -224,9 +224,10 @@ class DriverGenerator:
             raise ValueError("City must have at least one point of interest")
         
         for i in range(count):
-            start_x = random.uniform(0, city.canvas[0])
-            start_y = random.uniform(0, city.canvas[1])
-            
+            # Random starting position within city bounds
+            start_lat = random.uniform(city.min_latitude, city.max_latitude)
+            start_lon = random.uniform(city.min_longitude, city.max_longitude)
+
             destination_poi = random.choice(city.point_of_interests)
             
             # Low price tolerance
@@ -238,11 +239,11 @@ class DriverGenerator:
                 id=i + 1,
                 pseudonym=f"BudgetDriver_{i+1:04d}",
                 max_parking_price=max_price,
-                starting_position=(start_x, start_y),
+                starting_position=(start_lat, start_lon),
                 destination=destination_poi.position,
                 desired_parking_time=duration
             )
-            
+
             drivers.append(driver)
-        
+
         return drivers
