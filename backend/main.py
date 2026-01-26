@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 from services.data.osmnx_loader import OSMnxParkingLoader
+from backend.services.optimizer.schemas.optimization_schema import ParkingZoneInput, OptimizationSettings, OptimizationRequest, OptimizationResponse
+from backend.services.optimizer.nsga3_optimizer_elasticity import NSGA3OptimizerElasticity
 
 app = FastAPI(title="Parking Fee Optimization API", version="1.0.0")
 
@@ -87,13 +89,16 @@ async def get_parking_zone(zone_id: int):
             return zone
     return {"error": "Zone not found"}
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
-
-
+@app.post("/optimize", response_model=OptimizationResponse)
+async def optimize_fee(request: OptimizationRequest):
+    """
+    Endpoint to execute the NSGA-III optimization algorithm.
+    """
+    #Create an instance of the NSGA3Optimizer
+    optimizer = NSGA3OptimizerElasticity()
+    
+    #Call the optimize method and return the result
+    return optimizer.optimize(request)
 
 if __name__ == "__main__":
     import uvicorn

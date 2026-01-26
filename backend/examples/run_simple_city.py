@@ -1,12 +1,10 @@
-import sys
 import os
+from decimal import Decimal
 
-# Pfad-Setup
 current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(current_dir)
 
-from schemas.optimization import OptimizationRequest, OptimizationSettings, ParkingZoneInput
-from services.nsga3_optimizer import NSGA3Optimizer
+from backend.services.optimizer.schemas.optimization_schema import OptimizationRequest, OptimizationSettings, ParkingZoneInput
+from backend.services.optimizer.nsga3_optimizer_elasticity import NSGA3OptimizerElasticity
 
 def run_ultimate_table_test():
     print("\n" + "="*160)
@@ -16,8 +14,30 @@ def run_ultimate_table_test():
     # 1. TEST-DATEN (Deine simple Gemeinde)
     # besser: viele Szenarien pro Zone, damit der Pareto-Front sichtbar wird
     zones = [
-        ParkingZoneInput(zone_id=1, name="Zentrum", capacity=100, current_fee=2.00, current_occupancy=0.95, short_term_share=0.7, elasticity=-0.4, min_fee=1.0, max_fee=8.0),
-        ParkingZoneInput(zone_id=2, name="Dorf",    capacity=50,  current_fee=3.00, current_occupancy=0.20, short_term_share=0.2, elasticity=-0.6, min_fee=0.5, max_fee=5.0)
+        ParkingZoneInput(
+            id=1,
+            pseudonym="Zentrum",
+            maximum_capacity=100,
+            current_capacity=95,  # 95% occupancy = 95 spots
+            price=Decimal("2.00"),
+            position=(0.0, 0.0),  # Placeholder position
+            short_term_share=0.7,
+            elasticity=-0.4,
+            min_fee=1.0,
+            max_fee=8.0
+        ),
+        ParkingZoneInput(
+            id=2,
+            pseudonym="Dorf",
+            maximum_capacity=50,
+            current_capacity=10,  # 20% occupancy = 10 spots
+            price=Decimal("3.00"),
+            position=(1.0, 1.0),  # Placeholder position
+            short_term_share=0.2,
+            elasticity=-0.6,
+            min_fee=0.5,
+            max_fee=5.0
+        )
     ]
 
     req = OptimizationRequest(
@@ -27,7 +47,7 @@ def run_ultimate_table_test():
 
     # 2. BERECHNUNG
     print("... Algorithmus rechnet ...")
-    optimizer = NSGA3Optimizer()
+    optimizer = NSGA3OptimizerElasticity()
     result = optimizer.optimize(req)
     
     # Wir sortieren nach Gewinn, damit es übersichtlich bleibt
@@ -42,9 +62,9 @@ def run_ultimate_table_test():
     # GAP    = Abweichung von 85% Auslastung
     
     header = f"{'ID':<4} | {'GEWINN':<9} | {'GAP':<6} | {'DROP':<6} | {'NUTZER':<6} ||"
-    
+
     for z in zones:
-        header += f" Z{z.zone_id} PREIS | Z{z.zone_id} AUSL |"
+        header += f" Z{z.id} PREIS | Z{z.id} AUSL |"
     
     print("-" * len(header))
     print(header)

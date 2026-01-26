@@ -50,8 +50,8 @@ class Street(BaseModel):
                 "pseudonym": "MainStreet_A_B",
                 "from_position": [100.0, 200.0],
                 "to_position": [300.0, 450.0],
-                "from_parking_lot_id": 1,
-                "to_parking_lot_id": 2,
+                "from_parking_zone_id": 1,
+                "to_parking_zone_id": 2,
                 "speed_limit": 2.0
             }
         }
@@ -66,11 +66,11 @@ class Street(BaseModel):
     to_position: Tuple[float, float] = Field(..., description="Ending position (latitude, longitude)")
     
     # Optional parking lot connections
-    from_parking_lot_id: Optional[int] = Field(None, description="Starting parking lot ID (if applicable)")
-    to_parking_lot_id: Optional[int] = Field(None, description="Ending parking lot ID (if applicable)")
+    from_parking_zone_id: Optional[int] = Field(None, description="Starting parking lot ID (if applicable)")
+    to_parking_zone_id: Optional[int] = Field(None, description="Ending parking lot ID (if applicable)")
     
-    # Street characteristics
-    speed_limit: float = Field(..., gt=0, description="Maximum travel speed in pixels per unit time")
+    # Street characteristics - Cost of traversal
+    speed_limit: float = Field(..., gt=0, description="Maximum travel speed (km/h or arbitrary units)")
     
     def length(self) -> float:
         """Calculate the euclidean length between from_position and to_position."""
@@ -83,9 +83,9 @@ class Street(BaseModel):
         return self.length() / self.speed_limit
 
 
-class ParkingLot(BaseModel):
+class ParkingZone(BaseModel):
     """
-    ParkingLot model for parking simulation.
+    ParkingZone model for parking simulation.
     Represents a parking facility with capacity and pricing information.
     """
     model_config = ConfigDict(
@@ -150,32 +150,39 @@ class ParkingLot(BaseModel):
 
 class City(BaseModel):
     """
-    City model representing a 2D simulation environment.
+    City model representing a real geographic area.
     Contains parking lots, streets, and points of interest for driver navigation.
+    Uses real latitude/longitude coordinates.
     """
-    
+
     # Unique identification
     id: int = Field(..., description="Unique city identifier")
     pseudonym: str = Field(..., min_length=1, description="City's pseudonym for simulation")
-    
-    # Canvas/Map dimensions
-    canvas: Tuple[float, float] = Field(..., description="Canvas size (width, height) in coordinate units")
-    
+
+    # Geographic bounds (bounding box)
+    min_latitude: float = Field(..., ge=-90, le=90, description="Minimum latitude of city bounds")
+    max_latitude: float = Field(..., ge=-90, le=90, description="Maximum latitude of city bounds")
+    min_longitude: float = Field(..., ge=-180, le=180, description="Minimum longitude of city bounds")
+    max_longitude: float = Field(..., ge=-180, le=180, description="Maximum longitude of city bounds")
+
     # City components
-    parking_lots: List[ParkingLot] = Field(default_factory=list, description="List of parking lots in the city")
+    parking_zones: List[ParkingZone] = Field(default_factory=list, description="List of parking lots in the city")
     point_of_interests: List[PointOfInterest] = Field(
-        default_factory=list, 
+        default_factory=list,
         description="List of points of interest in the city"
     )
     streets: List[Street] = Field(default_factory=list, description="List of streets connecting locations")
-    
+
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "id": 1,
-                "pseudonym": "SimCity_Downtown",
-                "canvas": [1000.0, 1000.0],
-                "parking_lots": [
+                "pseudonym": "Berlin_Mitte",
+                "min_latitude": 52.5000,
+                "max_latitude": 52.5300,
+                "min_longitude": 13.3800,
+                "max_longitude": 13.4200,
+                "parking_zones": [
                     {
                         "id": 1,
                         "pseudonym": "CenterLot001",
@@ -203,99 +210,138 @@ class City(BaseModel):
                         "pseudonym": "MainStreet_A_B",
                         "from_position": [52.5200, 13.4050],
                         "to_position": [52.5170, 13.4003],
-                        "driving_cost": "0.50",
-                        "distance": 500.0,
-                        "travel_time": 2.5
+                        "from_parking_zone_id": None,
+                        "to_parking_zone_id": 1,
+                        "speed_limit": 50.0
                     }
                 ]
             }
         }
     )
-    
-    @field_validator('canvas')
-    @classmethod
-    def canvas_positive_dimensions(cls, v):
-        """Validate that canvas dimensions are positive."""
-        if v[0] <= 0 or v[1] <= 0:
-            raise ValueError('Canvas dimensions must be positive')
-        return v
-    
+
+    @model_validator(mode='after')
+    def validate_bounds(self):
+        """Validate that geographic bounds are consistent."""
+        if self.min_latitude >= self.max_latitude:
+            raise ValueError('min_latitude must be less than max_latitude')
+        if self.min_longitude >= self.max_longitude:
+            raise ValueError('min_longitude must be less than max_longitude')
+        return self
+
     @model_validator(mode='after')
     def validate_positions(self):
-        """Validate that all parking lots and POIs are within canvas bounds."""
-        canvas_width, canvas_height = self.canvas
-        
+        """Validate that all parking lots and POIs are within geographic bounds."""
         # Validate parking lot positions
-        for lot in self.parking_lots:
+        for lot in self.parking_zones:
             lat, lon = lot.position
-            if not (0 <= lat <= canvas_width and 0 <= lon <= canvas_height):
-                raise ValueError(f'Parking lot {lot.id} position {lot.position} is outside canvas bounds')
-        
+            if not (self.min_latitude <= lat <= self.max_latitude):
+                raise ValueError(
+                    f'Parking lot {lot.id} latitude {lat} is outside city bounds '
+                    f'[{self.min_latitude}, {self.max_latitude}]'
+                )
+            if not (self.min_longitude <= lon <= self.max_longitude):
+                raise ValueError(
+                    f'Parking lot {lot.id} longitude {lon} is outside city bounds '
+                    f'[{self.min_longitude}, {self.max_longitude}]'
+                )
+
         # Validate point of interest positions
         for poi in self.point_of_interests:
             lat, lon = poi.position
-            if not (0 <= lat <= canvas_width and 0 <= lon <= canvas_height):
-                raise ValueError(f'Point of interest {poi.id} at position {poi.position} is outside canvas bounds')
-        
+            if not (self.min_latitude <= lat <= self.max_latitude):
+                raise ValueError(
+                    f'Point of interest {poi.id} latitude {lat} is outside city bounds '
+                    f'[{self.min_latitude}, {self.max_latitude}]'
+                )
+            if not (self.min_longitude <= lon <= self.max_longitude):
+                raise ValueError(
+                    f'Point of interest {poi.id} longitude {lon} is outside city bounds '
+                    f'[{self.min_longitude}, {self.max_longitude}]'
+                )
+
         return self
     
-    def get_parking_lot_by_id(self, lot_id: int) -> Optional[ParkingLot]:
+    def get_parking_zone_by_id(self, lot_id: int) -> Optional[ParkingZone]:
         """Find parking lot by ID."""
-        for lot in self.parking_lots:
+        for lot in self.parking_zones:
             if lot.id == lot_id:
                 return lot
         return None
     
-    def add_parking_lot(self, parking_lot: ParkingLot) -> None:
+    def add_parking_zone(self, parking_zone: ParkingZone) -> None:
         """Add a parking lot to the city."""
-        # Validate position is within canvas
-        lat, lon = parking_lot.position
-        if not (0 <= lat <= self.canvas[0] and 0 <= lon <= self.canvas[1]):
-            raise ValueError(f'Parking lot position {parking_lot.position} is outside canvas bounds')
-        
+        # Validate position is within geographic bounds
+        lat, lon = parking_zone.position
+        if not (self.min_latitude <= lat <= self.max_latitude):
+            raise ValueError(
+                f'Parking lot latitude {lat} is outside city bounds '
+                f'[{self.min_latitude}, {self.max_latitude}]'
+            )
+        if not (self.min_longitude <= lon <= self.max_longitude):
+            raise ValueError(
+                f'Parking lot longitude {lon} is outside city bounds '
+                f'[{self.min_longitude}, {self.max_longitude}]'
+            )
+
         # Check for duplicate IDs
-        if any(lot.id == parking_lot.id for lot in self.parking_lots):
-            raise ValueError(f'Parking lot with ID {parking_lot.id} already exists')
-        
-        self.parking_lots.append(parking_lot)
-    
+        if any(lot.id == parking_zone.id for lot in self.parking_zones):
+            raise ValueError(f'Parking lot with ID {parking_zone.id} already exists')
+
+        self.parking_zones.append(parking_zone)
+
     def add_point_of_interest(self, point_of_interest: PointOfInterest) -> None:
         """Add a point of interest to the city."""
         lat, lon = point_of_interest.position
-        if not (0 <= lat <= self.canvas[0] and 0 <= lon <= self.canvas[1]):
-            raise ValueError(f'Point of interest position {point_of_interest.position} is outside canvas bounds')
-        
+        if not (self.min_latitude <= lat <= self.max_latitude):
+            raise ValueError(
+                f'Point of interest latitude {lat} is outside city bounds '
+                f'[{self.min_latitude}, {self.max_latitude}]'
+            )
+        if not (self.min_longitude <= lon <= self.max_longitude):
+            raise ValueError(
+                f'Point of interest longitude {lon} is outside city bounds '
+                f'[{self.min_longitude}, {self.max_longitude}]'
+            )
+
         # Check for duplicate IDs
         if any(poi.id == point_of_interest.id for poi in self.point_of_interests):
             raise ValueError(f'Point of interest with ID {point_of_interest.id} already exists')
-        
+
         self.point_of_interests.append(point_of_interest)
-    
+
     def add_street(self, street: Street) -> None:
         """Add a street to the city."""
-        # Validate positions are within canvas
-        for pos in [street.from_position, street.to_position]:
+        # Validate positions are within geographic bounds
+        for pos_name, pos in [('from', street.from_position), ('to', street.to_position)]:
             lat, lon = pos
-            if not (0 <= lat <= self.canvas[0] and 0 <= lon <= self.canvas[1]):
-                raise ValueError(f'Street position {pos} is outside canvas bounds')
-        
+            if not (self.min_latitude <= lat <= self.max_latitude):
+                raise ValueError(
+                    f'Street {pos_name}_position latitude {lat} is outside city bounds '
+                    f'[{self.min_latitude}, {self.max_latitude}]'
+                )
+            if not (self.min_longitude <= lon <= self.max_longitude):
+                raise ValueError(
+                    f'Street {pos_name}_position longitude {lon} is outside city bounds '
+                    f'[{self.min_longitude}, {self.max_longitude}]'
+                )
+
         # Check for duplicate IDs
         if any(s.id == street.id for s in self.streets):
             raise ValueError(f'Street with ID {street.id} already exists')
-        
+
         self.streets.append(street)
     
     def total_parking_capacity(self) -> int:
         """Calculate total parking capacity across all lots."""
-        return sum(lot.maximum_capacity for lot in self.parking_lots)
+        return sum(lot.maximum_capacity for lot in self.parking_zones)
     
     def total_occupied_spots(self) -> int:
         """Calculate total occupied spots across all lots."""
-        return sum(lot.current_capacity for lot in self.parking_lots)
+        return sum(lot.current_capacity for lot in self.parking_zones)
     
     def total_available_spots(self) -> int:
         """Calculate total available spots across all lots."""
-        return sum(lot.available_spots() for lot in self.parking_lots)
+        return sum(lot.available_spots() for lot in self.parking_zones)
     
     def city_occupancy_rate(self) -> float:
         """Calculate overall city occupancy rate."""
@@ -304,15 +350,15 @@ class City(BaseModel):
             return 0.0
         return self.total_occupied_spots() / total_capacity
     
-    def find_nearest_parking_lot(self, position: Tuple[float, float]) -> Optional[ParkingLot]:
+    def find_nearest_parking_zone(self, position: Tuple[float, float]) -> Optional[ParkingZone]:
         """Find the nearest parking lot to a given position."""
-        if not self.parking_lots:
+        if not self.parking_zones:
             return None
         
         min_distance = float('inf')
         nearest_lot = None
         
-        for lot in self.parking_lots:
+        for lot in self.parking_zones:
             distance = lot.distance_to_point(position)
             if distance < min_distance:
                 min_distance = distance
@@ -320,15 +366,15 @@ class City(BaseModel):
         
         return nearest_lot
     
-    def find_available_parking_lots(self) -> List[ParkingLot]:
+    def find_available_parking_zones(self) -> List[ParkingZone]:
         """Find all parking lots with available spots."""
-        return [lot for lot in self.parking_lots if not lot.is_full()]
+        return [lot for lot in self.parking_zones if not lot.is_full()]
     
-    def get_streets_from_parking_lot(self, lot_id: int) -> List[Street]:
+    def get_streets_from_parking_zone(self, lot_id: int) -> List[Street]:
         """Get all streets that start from a specific parking lot."""
-        return [street for street in self.streets if street.from_parking_lot_id == lot_id]
+        return [street for street in self.streets if street.from_parking_zone_id == lot_id]
     
-    def get_streets_to_parking_lot(self, lot_id: int) -> List[Street]:
+    def get_streets_to_parking_zone(self, lot_id: int) -> List[Street]:
         """Get all streets that lead to a specific parking lot."""
-        return [street for street in self.streets if street.to_parking_lot_id == lot_id]
+        return [street for street in self.streets if street.to_parking_zone_id == lot_id]
 
