@@ -3,13 +3,13 @@ Karlsruhe-specific parking data loader.
 Uses K-Means Clustering to group parking zones spatially.
 """
 
-import numpy as np
 from typing import List
-from sklearn.cluster import KMeans  # Der ML-Algorithmus
-from schemas.optimization import ParkingZoneInput
-from services.data.osmnx_loader import OSMnxParkingLoader
 
-class KarlsruheLoader(OSMnxParkingLoader):
+from backend.services.optimizer.schemas.optimization_schema import ParkingZoneInput
+from backend.services.data.osmnx_loader import OSMnxLoader
+
+
+class KarlsruheLoader(OSMnxLoader):
     """
     Data Ingestion Service for Karlsruhe.
     
@@ -43,67 +43,8 @@ class KarlsruheLoader(OSMnxParkingLoader):
         """
         Loads zones and applies High-Quality Spatial Clustering (K-Means).
         """
-        # Load raw zones using the parent class method
         raw_zones = super().load_zones(limit)
-        
-        if not raw_zones:
-            return []
-
-        # 2. Prepare data for K-Means (coordinate matrix)
-        # Create an array [[lat, lon], [lat, lon], ...]
-        coords = np.array([[z.lat, z.lon] for z in raw_zones])
-
-        # Safety check: If all coordinates are 0 (error in OSM loader),
-        # use a fallback to prevent the code from crashing.
-        if np.all(coords == 0):
-            print("⚠️ Warning: No geolocation found. Falling back to simple indexing.")
-            coords = np.arange(len(raw_zones)).reshape(-1, 1)
-
-        # 3. K-Means Configuration
-        # We don't want huge clusters. We say: On average 15 parking spots per cluster.
-        # This ensures fine-grained, realistic price zones.
-        n_clusters = max(1, int(len(raw_zones) / 15))
-        
-        print(f"🧩 Running K-Means Algorithm...")
-        print(f"   Input: {len(raw_zones)} Zones")
-        print(f"   Target: {n_clusters} Spatial Clusters")
-
-        # THE ALGORITHM
-        kmeans = KMeans(
-            n_clusters=n_clusters, 
-            random_state=42,       # Fixed seed for reproducibility
-            n_init=10              # Algorithm runs 10x, takes the best result
-        )
-        
-        # The real clustering happens here:
-        cluster_labels = kmeans.fit_predict(coords)
-
-        # 4.results 
-        clustered_zones = []
-        
-        for i, zone in enumerate(raw_zones):
-            # We explicitly create the object anew to ensure
-            # that the ID is set correctly.
-            updated_zone = ParkingZoneInput(
-                zone_id=zone.zone_id,
-                # HERE comes the result from K-Means:
-                cluster_group_id=int(cluster_labels[i]), 
-                
-                name=zone.name,
-                lat=zone.lat,
-                lon=zone.lon,
-                capacity=zone.capacity,
-                current_fee=zone.current_fee,
-                current_occupancy=zone.current_occupancy,
-                min_fee=zone.min_fee,
-                max_fee=zone.max_fee,
-                elasticity=zone.elasticity,
-                short_term_share=zone.short_term_share
-            )
-            clustered_zones.append(updated_zone)
-
-        print(f"✅ Clustering complete. Optimization complexity reduced by factor {len(raw_zones)/n_clusters:.1f}x")
-        return clustered_zones
+        return super().cluster_zones(raw_zones)
 
     def export_results_for_superset(self, optimized_zones: list, filename: str = "karlsruhe_analytics.csv"):
         self.export_results_to_csv(optimized_zones, filename)

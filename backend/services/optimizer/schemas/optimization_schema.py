@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List
+from backend.models.city import ParkingZone
 
 #  INPUT SCHEMAS (Data coming from Frontend) 
 
@@ -7,27 +8,32 @@ from typing import List, Optional
 # It validates the raw data received from the city before optimization. (capacity, current fee, occupancy, constraints, user behavior)
 # logical constraints (e.g., no negative prices) rquired by the NSGA-III algorithm.
 
-class ParkingZoneInput(BaseModel):
+class ParkingZoneInput(ParkingZone):
     """
     Describes a single parking zone to be optimized.
+    Inherits from ParkingZone and adds optimization-specific constraints and behavior parameters.
+
+    Inherited fields from ParkingZone:
+    - id: Unique parking lot identifier
+    - pseudonym: Parking lot name
+    - price: Current hourly parking price
+    - position: Parking lot position (latitude, longitude)
+    - maximum_capacity: Total number of parking spots
+    - current_capacity: Currently occupied parking spots
     """
-    zone_id: int = Field(..., description="Unique ID of the zone")
-    # Das Cluster-Feld (wird automatisch befüllt)
-    cluster_group_id: int = Field(default=0, description="Zones with same ID get same price.")
-    
-    name: str = Field(..., description="Name of the zone")
-    
-    
-    lat: float = Field(default=0.0, description="Latitude")
-    lon: float = Field(default=0.0, description="Longitude")
-    
-    capacity: int = Field(..., gt=0, description="Total number of parking spots")
-    current_fee: float = Field(..., ge=0, description="Current hourly fee")
-    current_occupancy: float = Field(..., ge=0, le=1.0, description="Current occupancy rate")
+
+    # [cite_start]Rules (Hard Constraints) [cite: 175]
     min_fee: float = Field(..., ge=0, description="Legal minimum fee")
     max_fee: float = Field(..., description="Legal maximum fee")
-    elasticity: float = Field(default=-0.5, le=0, description="Price elasticity")
-    short_term_share: float = Field(default=0.5, ge=0, le=1.0, description="Share of short-term parkers")
+
+    # Simulation Data: How do users behave?
+    # Important for Objective 3: Demand drop
+    # syntax: 'le=0' (Less or Equal 0) because elasticity is usually negative
+    elasticity: float = Field(default=-0.5, le=0, description="Price elasticity (How strongly does demand drop with price increase?)")
+
+    # [cite_start]Important for Objective 4: User groups [cite: 167, 173]
+    # syntax: 'ge=0' and 'le=1.0' ensures a valid percentage between 0% and 100%
+    short_term_share: float = Field(default=0.5, ge=0, le=1.0, description="Share of short-term parkers (0.0 - 1.0)")
 
 # Defines the configuration parameters for the NSGA-III algorithm.
 class OptimizationSettings(BaseModel):

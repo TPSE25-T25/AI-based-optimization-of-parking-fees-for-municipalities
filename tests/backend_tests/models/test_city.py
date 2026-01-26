@@ -5,7 +5,7 @@ Unit tests for City, Street, and PointOfInterest models
 import pytest
 from decimal import Decimal
 from pydantic import ValidationError
-from backend.models.city import City, Street, PointOfInterest, ParkingLot
+from backend.models.city import City, Street, PointOfInterest, ParkingZone
 
 
 class TestPointOfInterest:
@@ -64,31 +64,31 @@ class TestStreet:
         street = Street(
             id=1,
             pseudonym="MainStreet_A_B",
-            from_position=(100.0, 200.0),
-            to_position=(300.0, 450.0),
+            from_position=(49.01, 8.42),
+            to_position=(49.03, 8.445),
             speed_limit=2.0
         )
-        
+
         assert street.id == 1
         assert street.pseudonym == "MainStreet_A_B"
-        assert street.from_position == (100.0, 200.0)
-        assert street.to_position == (300.0, 450.0)
+        assert street.from_position == (49.01, 8.42)
+        assert street.to_position == (49.03, 8.445)
         assert street.speed_limit == 2.0
     
-    def test_create_street_with_parking_lots(self):
+    def test_create_street_with_parking_zones(self):
         """Test creating a street with parking lot connections"""
         street = Street(
             id=1,
             pseudonym="ConnectorStreet",
             from_position=(0.0, 0.0),
-            to_position=(100.0, 100.0),
-            from_parking_lot_id=1,
-            to_parking_lot_id=2,
+            to_position=(49.01, 8.41),
+            from_parking_zone_id=1,
+            to_parking_zone_id=2,
             speed_limit=5.0
         )
         
-        assert street.from_parking_lot_id == 1
-        assert street.to_parking_lot_id == 2
+        assert street.from_parking_zone_id == 1
+        assert street.to_parking_zone_id == 2
     
     def test_street_speed_limit_validation(self):
         """Test that speed limit must be positive"""
@@ -97,7 +97,7 @@ class TestStreet:
                 id=1,
                 pseudonym="InvalidStreet",
                 from_position=(0.0, 0.0),
-                to_position=(100.0, 100.0),
+                to_position=(49.01, 8.41),
                 speed_limit=0.0  # Invalid: must be > 0
             )
         
@@ -106,7 +106,7 @@ class TestStreet:
                 id=1,
                 pseudonym="InvalidStreet",
                 from_position=(0.0, 0.0),
-                to_position=(100.0, 100.0),
+                to_position=(49.01, 8.41),
                 speed_limit=-1.0  # Invalid: must be > 0
             )
     
@@ -143,7 +143,7 @@ class TestStreet:
                 id=1,
                 pseudonym="",
                 from_position=(0.0, 0.0),
-                to_position=(100.0, 100.0),
+                to_position=(49.01, 8.41),
                 speed_limit=1.0
             )
 
@@ -152,34 +152,34 @@ class TestCity:
     """Unit tests for City model"""
     
     @pytest.fixture
-    def sample_parking_lot(self):
+    def sample_parking_zone(self):
         """Fixture for a sample parking lot"""
-        return ParkingLot(
+        return ParkingZone(
             id=1,
             pseudonym="CenterLot001",
             price=Decimal("2.50"),
-            position=(500.0, 500.0),
+            position=(49.05, 8.45),
             maximum_capacity=100,
             current_capacity=50
         )
-    
+
     @pytest.fixture
     def sample_poi(self):
         """Fixture for a sample point of interest"""
         return PointOfInterest(
             id=1,
             pseudonym="CityHall",
-            position=(250.0, 250.0)
+            position=(49.025, 8.425)
         )
-    
+
     @pytest.fixture
     def sample_street(self):
         """Fixture for a sample street"""
         return Street(
             id=1,
             pseudonym="MainStreet",
-            from_position=(100.0, 100.0),
-            to_position=(200.0, 200.0),
+            from_position=(49.01, 8.41),
+            to_position=(49.02, 8.42),
             speed_limit=2.0
         )
     
@@ -188,124 +188,157 @@ class TestCity:
         city = City(
             id=1,
             pseudonym="SimCity_Downtown",
-            canvas=(1000.0, 1000.0)
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5
         )
         
         assert city.id == 1
         assert city.pseudonym == "SimCity_Downtown"
-        assert city.canvas == (1000.0, 1000.0)
-        assert city.parking_lots == []
+        assert city.min_latitude == 49.0
+        assert city.max_latitude == 49.1
+        assert city.min_longitude == 8.4
+        assert city.max_longitude == 8.5
+        assert city.parking_zones == []
         assert city.point_of_interests == []
         assert city.streets == []
     
-    def test_city_canvas_validation_negative(self):
-        """Test that canvas dimensions must be positive"""
+    def test_city_bounds_validation_inverted(self):
+        """Test that min bounds must be less than max bounds"""
         with pytest.raises(ValidationError):
             City(
                 id=1,
                 pseudonym="InvalidCity",
-                canvas=(-100.0, 500.0)
+                min_latitude=49.1,
+                max_latitude=49.0,  # Invalid: max < min
+                min_longitude=8.4,
+                max_longitude=8.5
             )
-        
+
         with pytest.raises(ValidationError):
             City(
                 id=1,
                 pseudonym="InvalidCity",
-                canvas=(500.0, -100.0)
+                min_latitude=49.0,
+                max_latitude=49.1,
+                min_longitude=8.5,
+                max_longitude=8.4  # Invalid: max < min
+            )
+
+    def test_city_bounds_validation_equal(self):
+        """Test that min and max bounds cannot be equal"""
+        with pytest.raises(ValidationError):
+            City(
+                id=1,
+                pseudonym="InvalidCity",
+                min_latitude=49.0,
+                max_latitude=49.0,  # Invalid: equal
+                min_longitude=8.4,
+                max_longitude=8.5
+            )
+
+        with pytest.raises(ValidationError):
+            City(
+                id=1,
+                pseudonym="InvalidCity",
+                min_latitude=49.0,
+                max_latitude=49.1,
+                min_longitude=8.4,
+                max_longitude=8.4  # Invalid: equal
             )
     
-    def test_city_canvas_validation_zero(self):
-        """Test that canvas dimensions cannot be zero"""
-        with pytest.raises(ValidationError):
-            City(
-                id=1,
-                pseudonym="InvalidCity",
-                canvas=(0.0, 500.0)
-            )
-        
-        with pytest.raises(ValidationError):
-            City(
-                id=1,
-                pseudonym="InvalidCity",
-                canvas=(500.0, 0.0)
-            )
-    
-    def test_city_with_components(self, sample_parking_lot, sample_poi, sample_street):
+    def test_city_with_components(self, sample_parking_zone, sample_poi, sample_street):
         """Test creating a city with all components"""
         city = City(
             id=1,
             pseudonym="CompleteCity",
-            canvas=(1000.0, 1000.0),
-            parking_lots=[sample_parking_lot],
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5,
+            parking_zones=[sample_parking_zone],
             point_of_interests=[sample_poi],
             streets=[sample_street]
         )
         
-        assert len(city.parking_lots) == 1
+        assert len(city.parking_zones) == 1
         assert len(city.point_of_interests) == 1
         assert len(city.streets) == 1
     
-    def test_add_parking_lot_success(self, sample_parking_lot):
+    def test_add_parking_zone_success(self, sample_parking_zone):
         """Test adding a parking lot to the city"""
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0)
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5
         )
         
-        city.add_parking_lot(sample_parking_lot)
+        city.add_parking_zone(sample_parking_zone)
         
-        assert len(city.parking_lots) == 1
-        assert city.parking_lots[0].id == 1
+        assert len(city.parking_zones) == 1
+        assert city.parking_zones[0].id == 1
     
-    def test_add_parking_lot_outside_canvas(self):
-        """Test that parking lot outside canvas bounds raises error"""
+    def test_add_parking_zone_outside_bounds(self):
+        """Test that parking lot outside geographic bounds raises error"""
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(100.0, 100.0)
+            min_latitude=49.0,
+            max_latitude=49.01,
+            min_longitude=8.4,
+            max_longitude=8.41
         )
-        
-        invalid_lot = ParkingLot(
+
+        invalid_lot = ParkingZone(
             id=1,
             pseudonym="OutOfBounds",
             price=Decimal("2.50"),
-            position=(150.0, 50.0),  # Outside canvas
+            position=(50.0, 10.0),  # Outside geographic bounds
             maximum_capacity=50,
             current_capacity=0
         )
         
-        with pytest.raises(ValueError, match="outside canvas bounds"):
-            city.add_parking_lot(invalid_lot)
+        with pytest.raises(ValueError, match="outside city bounds"):
+            city.add_parking_zone(invalid_lot)
     
-    def test_add_parking_lot_duplicate_id(self, sample_parking_lot):
+    def test_add_parking_zone_duplicate_id(self, sample_parking_zone):
         """Test that duplicate parking lot ID raises error"""
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0)
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5
         )
         
-        city.add_parking_lot(sample_parking_lot)
+        city.add_parking_zone(sample_parking_zone)
         
-        duplicate_lot = ParkingLot(
+        duplicate_lot = ParkingZone(
             id=1,  # Same ID
             pseudonym="DuplicateLot",
             price=Decimal("3.00"),
-            position=(600.0, 600.0),
+            position=(49.06, 8.46),
             maximum_capacity=75,
             current_capacity=0
         )
         
         with pytest.raises(ValueError, match="already exists"):
-            city.add_parking_lot(duplicate_lot)
+            city.add_parking_zone(duplicate_lot)
     
     def test_add_point_of_interest_success(self, sample_poi):
         """Test adding a point of interest to the city"""
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0)
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5
         )
         
         city.add_point_of_interest(sample_poi)
@@ -313,21 +346,24 @@ class TestCity:
         assert len(city.point_of_interests) == 1
         assert city.point_of_interests[0].id == 1
     
-    def test_add_poi_outside_canvas(self):
-        """Test that POI outside canvas bounds raises error"""
+    def test_add_poi_outside_bounds(self):
+        """Test that POI outside geographic bounds raises error"""
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(100.0, 100.0)
+            min_latitude=49.0,
+            max_latitude=49.01,
+            min_longitude=8.4,
+            max_longitude=8.41
         )
-        
+
         invalid_poi = PointOfInterest(
             id=1,
             pseudonym="OutOfBounds",
-            position=(150.0, 50.0)
+            position=(50.0, 10.0)  # Outside geographic bounds
         )
         
-        with pytest.raises(ValueError, match="outside canvas bounds"):
+        with pytest.raises(ValueError, match="outside city bounds"):
             city.add_point_of_interest(invalid_poi)
     
     def test_add_poi_duplicate_id(self, sample_poi):
@@ -335,7 +371,10 @@ class TestCity:
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0)
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5
         )
         
         city.add_point_of_interest(sample_poi)
@@ -343,7 +382,7 @@ class TestCity:
         duplicate_poi = PointOfInterest(
             id=1,  # Same ID
             pseudonym="DuplicatePOI",
-            position=(300.0, 300.0)
+            position=(49.03, 8.43)
         )
         
         with pytest.raises(ValueError, match="already exists"):
@@ -354,7 +393,10 @@ class TestCity:
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0)
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5
         )
         
         city.add_street(sample_street)
@@ -362,23 +404,26 @@ class TestCity:
         assert len(city.streets) == 1
         assert city.streets[0].id == 1
     
-    def test_add_street_outside_canvas(self):
-        """Test that street outside canvas bounds raises error"""
+    def test_add_street_outside_bounds(self):
+        """Test that street outside geographic bounds raises error"""
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(100.0, 100.0)
+            min_latitude=49.0,
+            max_latitude=49.01,
+            min_longitude=8.4,
+            max_longitude=8.41
         )
-        
+
         invalid_street = Street(
             id=1,
             pseudonym="OutOfBounds",
-            from_position=(50.0, 50.0),
-            to_position=(150.0, 150.0),  # Outside canvas
+            from_position=(50.0, 10.0),  # Outside geographic bounds
+            to_position=(51.0, 11.0),  # Outside geographic bounds
             speed_limit=2.0
         )
         
-        with pytest.raises(ValueError, match="outside canvas bounds"):
+        with pytest.raises(ValueError, match="outside city bounds"):
             city.add_street(invalid_street)
     
     def test_add_street_duplicate_id(self, sample_street):
@@ -386,7 +431,10 @@ class TestCity:
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0)
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5
         )
         
         city.add_street(sample_street)
@@ -394,38 +442,44 @@ class TestCity:
         duplicate_street = Street(
             id=1,  # Same ID
             pseudonym="DuplicateStreet",
-            from_position=(300.0, 300.0),
-            to_position=(400.0, 400.0),
+            from_position=(49.03, 8.43),
+            to_position=(49.04, 8.44),
             speed_limit=3.0
         )
         
         with pytest.raises(ValueError, match="already exists"):
             city.add_street(duplicate_street)
     
-    def test_get_parking_lot_by_id_found(self, sample_parking_lot):
+    def test_get_parking_zone_by_id_found(self, sample_parking_zone):
         """Test retrieving parking lot by ID"""
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0),
-            parking_lots=[sample_parking_lot]
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5,
+            parking_zones=[sample_parking_zone]
         )
         
-        result = city.get_parking_lot_by_id(1)
+        result = city.get_parking_zone_by_id(1)
         
         assert result is not None
         assert result.id == 1
         assert result.pseudonym == "CenterLot001"
     
-    def test_get_parking_lot_by_id_not_found(self):
+    def test_get_parking_zone_by_id_not_found(self):
         """Test retrieving non-existent parking lot returns None"""
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0)
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5
         )
         
-        result = city.get_parking_lot_by_id(999)
+        result = city.get_parking_zone_by_id(999)
         
         assert result is None
     
@@ -434,21 +488,24 @@ class TestCity:
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0),
-            parking_lots=[
-                ParkingLot(
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5,
+            parking_zones=[
+                ParkingZone(
                     id=1,
                     pseudonym="Lot1",
                     price=Decimal("2.00"),
-                    position=(100.0, 100.0),
+                    position=(49.01, 8.41),
                     maximum_capacity=100,
                     current_capacity=50
                 ),
-                ParkingLot(
+                ParkingZone(
                     id=2,
                     pseudonym="Lot2",
                     price=Decimal("3.00"),
-                    position=(200.0, 200.0),
+                    position=(49.02, 8.42),
                     maximum_capacity=150,
                     current_capacity=75
                 )
@@ -462,7 +519,10 @@ class TestCity:
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0)
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5
         )
         
         assert city.total_parking_capacity() == 0
@@ -472,21 +532,24 @@ class TestCity:
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0),
-            parking_lots=[
-                ParkingLot(
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5,
+            parking_zones=[
+                ParkingZone(
                     id=1,
                     pseudonym="Lot1",
                     price=Decimal("2.00"),
-                    position=(100.0, 100.0),
+                    position=(49.01, 8.41),
                     maximum_capacity=100,
                     current_capacity=60
                 ),
-                ParkingLot(
+                ParkingZone(
                     id=2,
                     pseudonym="Lot2",
                     price=Decimal("3.00"),
-                    position=(200.0, 200.0),
+                    position=(49.02, 8.42),
                     maximum_capacity=150,
                     current_capacity=90
                 )
@@ -500,21 +563,24 @@ class TestCity:
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0),
-            parking_lots=[
-                ParkingLot(
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5,
+            parking_zones=[
+                ParkingZone(
                     id=1,
                     pseudonym="Lot1",
                     price=Decimal("2.00"),
-                    position=(100.0, 100.0),
+                    position=(49.01, 8.41),
                     maximum_capacity=100,
                     current_capacity=60
                 ),
-                ParkingLot(
+                ParkingZone(
                     id=2,
                     pseudonym="Lot2",
                     price=Decimal("3.00"),
-                    position=(200.0, 200.0),
+                    position=(49.02, 8.42),
                     maximum_capacity=150,
                     current_capacity=90
                 )
@@ -529,21 +595,24 @@ class TestCity:
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0),
-            parking_lots=[
-                ParkingLot(
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5,
+            parking_zones=[
+                ParkingZone(
                     id=1,
                     pseudonym="Lot1",
                     price=Decimal("2.00"),
-                    position=(100.0, 100.0),
+                    position=(49.01, 8.41),
                     maximum_capacity=100,
                     current_capacity=50
                 ),
-                ParkingLot(
+                ParkingZone(
                     id=2,
                     pseudonym="Lot2",
                     price=Decimal("3.00"),
-                    position=(200.0, 200.0),
+                    position=(49.02, 8.42),
                     maximum_capacity=100,
                     current_capacity=30
                 )
@@ -558,89 +627,101 @@ class TestCity:
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0)
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5
         )
         
         assert city.city_occupancy_rate() == 0.0
     
-    def test_find_nearest_parking_lot(self):
+    def test_find_nearest_parking_zone(self):
         """Test finding nearest parking lot to a position"""
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0),
-            parking_lots=[
-                ParkingLot(
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5,
+            parking_zones=[
+                ParkingZone(
                     id=1,
                     pseudonym="FarLot",
                     price=Decimal("2.00"),
-                    position=(900.0, 900.0),
+                    position=(49.09, 8.49),
                     maximum_capacity=100,
                     current_capacity=0
                 ),
-                ParkingLot(
+                ParkingZone(
                     id=2,
                     pseudonym="NearLot",
                     price=Decimal("3.00"),
-                    position=(105.0, 105.0),
+                    position=(49.015, 8.415),
                     maximum_capacity=100,
                     current_capacity=0
                 )
             ]
         )
         
-        nearest = city.find_nearest_parking_lot((100.0, 100.0))
+        nearest = city.find_nearest_parking_zone((49.01, 8.41))
         
         assert nearest is not None
         assert nearest.pseudonym == "NearLot"
     
-    def test_find_nearest_parking_lot_empty_city(self):
+    def test_find_nearest_parking_zone_empty_city(self):
         """Test finding nearest parking lot with no lots"""
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0)
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5
         )
         
-        result = city.find_nearest_parking_lot((100.0, 100.0))
+        result = city.find_nearest_parking_zone((49.01, 8.41))
         
         assert result is None
     
-    def test_find_available_parking_lots(self):
+    def test_find_available_parking_zones(self):
         """Test finding parking lots with available spots"""
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0),
-            parking_lots=[
-                ParkingLot(
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5,
+            parking_zones=[
+                ParkingZone(
                     id=1,
                     pseudonym="FullLot",
                     price=Decimal("2.00"),
-                    position=(100.0, 100.0),
+                    position=(49.01, 8.41),
                     maximum_capacity=100,
                     current_capacity=100  # Full
                 ),
-                ParkingLot(
+                ParkingZone(
                     id=2,
                     pseudonym="AvailableLot1",
                     price=Decimal("3.00"),
-                    position=(200.0, 200.0),
+                    position=(49.02, 8.42),
                     maximum_capacity=100,
                     current_capacity=50  # Available
                 ),
-                ParkingLot(
+                ParkingZone(
                     id=3,
                     pseudonym="AvailableLot2",
                     price=Decimal("2.50"),
-                    position=(300.0, 300.0),
+                    position=(49.03, 8.43),
                     maximum_capacity=100,
                     current_capacity=0  # Available
                 )
             ]
         )
         
-        available_lots = city.find_available_parking_lots()
+        available_lots = city.find_available_parking_zones()
         
         assert len(available_lots) == 2
         pseudonyms = [lot.pseudonym for lot in available_lots]
@@ -648,137 +729,149 @@ class TestCity:
         assert "AvailableLot2" in pseudonyms
         assert "FullLot" not in pseudonyms
     
-    def test_find_available_parking_lots_all_full(self):
+    def test_find_available_parking_zones_all_full(self):
         """Test finding available lots when all are full"""
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0),
-            parking_lots=[
-                ParkingLot(
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5,
+            parking_zones=[
+                ParkingZone(
                     id=1,
                     pseudonym="FullLot1",
                     price=Decimal("2.00"),
-                    position=(100.0, 100.0),
+                    position=(49.01, 8.41),
                     maximum_capacity=100,
                     current_capacity=100
                 ),
-                ParkingLot(
+                ParkingZone(
                     id=2,
                     pseudonym="FullLot2",
                     price=Decimal("3.00"),
-                    position=(200.0, 200.0),
+                    position=(49.02, 8.42),
                     maximum_capacity=50,
                     current_capacity=50
                 )
             ]
         )
         
-        available_lots = city.find_available_parking_lots()
+        available_lots = city.find_available_parking_zones()
         
         assert len(available_lots) == 0
     
-    def test_get_streets_from_parking_lot(self):
+    def test_get_streets_from_parking_zone(self):
         """Test getting streets that originate from a parking lot"""
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0),
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5,
             streets=[
                 Street(
                     id=1,
                     pseudonym="Street1",
-                    from_position=(100.0, 100.0),
-                    to_position=(200.0, 200.0),
-                    from_parking_lot_id=1,
-                    to_parking_lot_id=2,
+                    from_position=(49.01, 8.41),
+                    to_position=(49.02, 8.42),
+                    from_parking_zone_id=1,
+                    to_parking_zone_id=2,
                     speed_limit=2.0
                 ),
                 Street(
                     id=2,
                     pseudonym="Street2",
-                    from_position=(100.0, 100.0),
-                    to_position=(300.0, 300.0),
-                    from_parking_lot_id=1,
-                    to_parking_lot_id=3,
+                    from_position=(49.01, 8.41),
+                    to_position=(49.03, 8.43),
+                    from_parking_zone_id=1,
+                    to_parking_zone_id=3,
                     speed_limit=2.5
                 ),
                 Street(
                     id=3,
                     pseudonym="Street3",
-                    from_position=(200.0, 200.0),
-                    to_position=(300.0, 300.0),
-                    from_parking_lot_id=2,
-                    to_parking_lot_id=3,
+                    from_position=(49.02, 8.42),
+                    to_position=(49.03, 8.43),
+                    from_parking_zone_id=2,
+                    to_parking_zone_id=3,
                     speed_limit=3.0
                 )
             ]
         )
         
-        streets_from_lot_1 = city.get_streets_from_parking_lot(1)
+        streets_from_lot_1 = city.get_streets_from_parking_zone(1)
         
         assert len(streets_from_lot_1) == 2
         pseudonyms = [street.pseudonym for street in streets_from_lot_1]
         assert "Street1" in pseudonyms
         assert "Street2" in pseudonyms
     
-    def test_get_streets_to_parking_lot(self):
+    def test_get_streets_to_parking_zone(self):
         """Test getting streets that lead to a parking lot"""
         city = City(
             id=1,
             pseudonym="TestCity",
-            canvas=(1000.0, 1000.0),
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5,
             streets=[
                 Street(
                     id=1,
                     pseudonym="Street1",
-                    from_position=(100.0, 100.0),
-                    to_position=(200.0, 200.0),
-                    from_parking_lot_id=1,
-                    to_parking_lot_id=3,
+                    from_position=(49.01, 8.41),
+                    to_position=(49.02, 8.42),
+                    from_parking_zone_id=1,
+                    to_parking_zone_id=3,
                     speed_limit=2.0
                 ),
                 Street(
                     id=2,
                     pseudonym="Street2",
-                    from_position=(150.0, 150.0),
-                    to_position=(300.0, 300.0),
-                    from_parking_lot_id=2,
-                    to_parking_lot_id=3,
+                    from_position=(49.015, 8.415),
+                    to_position=(49.03, 8.43),
+                    from_parking_zone_id=2,
+                    to_parking_zone_id=3,
                     speed_limit=2.5
                 ),
                 Street(
                     id=3,
                     pseudonym="Street3",
-                    from_position=(200.0, 200.0),
-                    to_position=(400.0, 400.0),
-                    from_parking_lot_id=3,
-                    to_parking_lot_id=4,
+                    from_position=(49.02, 8.42),
+                    to_position=(49.04, 8.44),
+                    from_parking_zone_id=3,
+                    to_parking_zone_id=4,
                     speed_limit=3.0
                 )
             ]
         )
         
-        streets_to_lot_3 = city.get_streets_to_parking_lot(3)
+        streets_to_lot_3 = city.get_streets_to_parking_zone(3)
         
         assert len(streets_to_lot_3) == 2
         pseudonyms = [street.pseudonym for street in streets_to_lot_3]
         assert "Street1" in pseudonyms
         assert "Street2" in pseudonyms
     
-    def test_parking_lot_position_validation_at_creation(self):
+    def test_parking_zone_position_validation_at_creation(self):
         """Test that parking lot positions are validated during city creation"""
-        with pytest.raises(ValidationError, match="outside canvas bounds"):
+        with pytest.raises(ValidationError, match="outside city bounds"):
             City(
                 id=1,
                 pseudonym="InvalidCity",
-                canvas=(100.0, 100.0),
-                parking_lots=[
-                    ParkingLot(
+                min_latitude=49.0,
+            max_latitude=49.01,
+            min_longitude=8.4,
+            max_longitude=8.41,
+                parking_zones=[
+                    ParkingZone(
                         id=1,
                         pseudonym="OutOfBoundsLot",
                         price=Decimal("2.00"),
-                        position=(150.0, 50.0),  # Outside canvas
+                        position=(50.0, 10.0),  # Outside geographic bounds
                         maximum_capacity=50,
                         current_capacity=0
                     )
@@ -787,16 +880,19 @@ class TestCity:
     
     def test_poi_position_validation_at_creation(self):
         """Test that POI positions are validated during city creation"""
-        with pytest.raises(ValidationError, match="outside canvas bounds"):
+        with pytest.raises(ValidationError, match="outside city bounds"):
             City(
                 id=1,
                 pseudonym="InvalidCity",
-                canvas=(100.0, 100.0),
+                min_latitude=49.0,
+            max_latitude=49.01,
+            min_longitude=8.4,
+            max_longitude=8.41,
                 point_of_interests=[
                     PointOfInterest(
                         id=1,
                         pseudonym="OutOfBoundsPOI",
-                        position=(150.0, 50.0)  # Outside canvas
+                        position=(50.0, 10.0)  # Outside geographic bounds
                     )
                 ]
             )
@@ -807,7 +903,10 @@ class TestCity:
             City(
                 id=1,
                 pseudonym="",
-                canvas=(1000.0, 1000.0)
+                min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5
             )
     
     def test_complex_city_scenario(self):
@@ -815,63 +914,66 @@ class TestCity:
         city = City(
             id=1,
             pseudonym="ComplexCity",
-            canvas=(1000.0, 1000.0)
+            min_latitude=49.0,
+            max_latitude=49.1,
+            min_longitude=8.4,
+            max_longitude=8.5
         )
         
         # Add multiple parking lots
         for i in range(3):
-            city.add_parking_lot(
-                ParkingLot(
+            city.add_parking_zone(
+                ParkingZone(
                     id=i+1,
                     pseudonym=f"Lot{i+1}",
                     price=Decimal("2.00") + Decimal(str(i * 0.5)),
-                    position=(100.0 + i*100, 100.0 + i*100),
+                    position=(49.01 + i*0.01, 8.41 + i*0.01),
                     maximum_capacity=100,
                     current_capacity=i * 20
                 )
             )
-        
+
         # Add POIs
         for i in range(2):
             city.add_point_of_interest(
                 PointOfInterest(
                     id=i+1,
                     pseudonym=f"POI{i+1}",
-                    position=(500.0 + i*100, 500.0 + i*100)
+                    position=(49.05 + i*0.01, 8.45 + i*0.01)
                 )
             )
-        
+
         # Add streets
         for i in range(2):
             city.add_street(
                 Street(
                     id=i+1,
                     pseudonym=f"Street{i+1}",
-                    from_position=(100.0 + i*100, 100.0 + i*100),
-                    to_position=(200.0 + i*100, 200.0 + i*100),
-                    from_parking_lot_id=i+1,
-                    to_parking_lot_id=i+2,
+                    from_position=(49.01 + i*0.01, 8.41 + i*0.01),
+                    to_position=(49.02 + i*0.01, 8.42 + i*0.01),
+                    from_parking_zone_id=i+1,
+                    to_parking_zone_id=i+2,
                     speed_limit=2.0
                 )
             )
         
         # Verify city state
-        assert len(city.parking_lots) == 3
+        assert len(city.parking_zones) == 3
         assert len(city.point_of_interests) == 2
         assert len(city.streets) == 2
         assert city.total_parking_capacity() == 300
         assert city.total_occupied_spots() == 60  # 0 + 20 + 40
         assert city.total_available_spots() == 240
-        assert len(city.find_available_parking_lots()) == 3
+        assert len(city.find_available_parking_zones()) == 3
 
 
-class TestParkingLot:
-    """Unit tests for ParkingLot model"""
+class TestParkingZone:
+    """Unit tests for ParkingZone model"""
     
     @pytest.fixture
-    def sample_parking_lot(self):
+    def sample_parking_zone(self):
         """Fixture for a sample parking lot"""
-        return ParkingLot(
+        return ParkingZone(
             id=1,
             pseudonym="CenterLot001",
             price=Decimal("2.50"),
@@ -880,9 +982,9 @@ class TestParkingLot:
             current_capacity=50
         )
     
-    def test_create_parking_lot_success(self):
+    def test_create_parking_zone_success(self):
         """Test creating a valid parking lot"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="TestLot",
             price=Decimal("3.00"),
@@ -898,9 +1000,9 @@ class TestParkingLot:
         assert lot.maximum_capacity == 150
         assert lot.current_capacity == 75
     
-    def test_create_parking_lot_with_string_price(self):
+    def test_create_parking_zone_with_string_price(self):
         """Test creating parking lot with string price (auto-conversion)"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=2,
             pseudonym="TestLot2",
             price="4.75",
@@ -911,10 +1013,10 @@ class TestParkingLot:
         
         assert lot.price == Decimal("4.75")
     
-    def test_parking_lot_pseudonym_validation(self):
+    def test_parking_zone_pseudonym_validation(self):
         """Test that pseudonym cannot be empty"""
         with pytest.raises(ValidationError):
-            ParkingLot(
+            ParkingZone(
                 id=1,
                 pseudonym="",
                 price=Decimal("2.50"),
@@ -926,7 +1028,7 @@ class TestParkingLot:
     def test_price_validation_negative(self):
         """Test that price cannot be negative"""
         with pytest.raises(ValidationError):
-            ParkingLot(
+            ParkingZone(
                 id=1,
                 pseudonym="TestLot",
                 price=Decimal("-1.00"),
@@ -937,7 +1039,7 @@ class TestParkingLot:
     
     def test_price_validation_zero(self):
         """Test that price can be zero (free parking)"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="FreeLot",
             price=Decimal("0.00"),
@@ -951,7 +1053,7 @@ class TestParkingLot:
     def test_maximum_capacity_validation_positive(self):
         """Test that maximum_capacity must be positive"""
         with pytest.raises(ValidationError):
-            ParkingLot(
+            ParkingZone(
                 id=1,
                 pseudonym="TestLot",
                 price=Decimal("2.50"),
@@ -961,7 +1063,7 @@ class TestParkingLot:
             )
         
         with pytest.raises(ValidationError):
-            ParkingLot(
+            ParkingZone(
                 id=1,
                 pseudonym="TestLot",
                 price=Decimal("2.50"),
@@ -973,7 +1075,7 @@ class TestParkingLot:
     def test_current_capacity_validation_negative(self):
         """Test that current_capacity cannot be negative"""
         with pytest.raises(ValidationError):
-            ParkingLot(
+            ParkingZone(
                 id=1,
                 pseudonym="TestLot",
                 price=Decimal("2.50"),
@@ -985,7 +1087,7 @@ class TestParkingLot:
     def test_current_capacity_validation_exceeds_maximum(self):
         """Test that current_capacity cannot exceed maximum_capacity"""
         with pytest.raises(ValueError, match="cannot exceed maximum capacity"):
-            ParkingLot(
+            ParkingZone(
                 id=1,
                 pseudonym="TestLot",
                 price=Decimal("2.50"),
@@ -996,7 +1098,7 @@ class TestParkingLot:
     
     def test_current_capacity_equals_maximum(self):
         """Test that current_capacity can equal maximum_capacity (full lot)"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="FullLot",
             price=Decimal("3.00"),
@@ -1010,7 +1112,7 @@ class TestParkingLot:
     
     def test_available_spots_calculation(self):
         """Test available spots calculation"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="TestLot",
             price=Decimal("2.50"),
@@ -1023,7 +1125,7 @@ class TestParkingLot:
     
     def test_available_spots_empty_lot(self):
         """Test available spots for empty lot"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="EmptyLot",
             price=Decimal("2.50"),
@@ -1036,7 +1138,7 @@ class TestParkingLot:
     
     def test_available_spots_full_lot(self):
         """Test available spots for full lot"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="FullLot",
             price=Decimal("2.50"),
@@ -1049,7 +1151,7 @@ class TestParkingLot:
     
     def test_occupancy_rate_calculation(self):
         """Test occupancy rate calculation"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="TestLot",
             price=Decimal("2.50"),
@@ -1062,7 +1164,7 @@ class TestParkingLot:
     
     def test_occupancy_rate_empty(self):
         """Test occupancy rate for empty lot"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="EmptyLot",
             price=Decimal("2.50"),
@@ -1075,7 +1177,7 @@ class TestParkingLot:
     
     def test_occupancy_rate_full(self):
         """Test occupancy rate for full lot"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="FullLot",
             price=Decimal("2.50"),
@@ -1088,7 +1190,7 @@ class TestParkingLot:
     
     def test_occupancy_rate_partial(self):
         """Test occupancy rate for partially filled lot"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="PartialLot",
             price=Decimal("2.50"),
@@ -1101,7 +1203,7 @@ class TestParkingLot:
     
     def test_is_full_true(self):
         """Test is_full returns True when lot is full"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="FullLot",
             price=Decimal("2.50"),
@@ -1114,7 +1216,7 @@ class TestParkingLot:
     
     def test_is_full_false(self):
         """Test is_full returns False when lot has space"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="PartialLot",
             price=Decimal("2.50"),
@@ -1127,7 +1229,7 @@ class TestParkingLot:
     
     def test_is_full_empty(self):
         """Test is_full returns False for empty lot"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="EmptyLot",
             price=Decimal("2.50"),
@@ -1140,7 +1242,7 @@ class TestParkingLot:
     
     def test_can_accommodate_single_spot(self):
         """Test can_accommodate for single spot"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="TestLot",
             price=Decimal("2.50"),
@@ -1154,7 +1256,7 @@ class TestParkingLot:
     
     def test_can_accommodate_multiple_spots(self):
         """Test can_accommodate for multiple spots"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="TestLot",
             price=Decimal("2.50"),
@@ -1169,7 +1271,7 @@ class TestParkingLot:
     
     def test_can_accommodate_default_parameter(self):
         """Test can_accommodate with default parameter (1 spot)"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="TestLot",
             price=Decimal("2.50"),
@@ -1182,7 +1284,7 @@ class TestParkingLot:
     
     def test_can_accommodate_full_lot(self):
         """Test can_accommodate for full lot"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="FullLot",
             price=Decimal("2.50"),
@@ -1196,7 +1298,7 @@ class TestParkingLot:
     
     def test_distance_to_point_calculation(self):
         """Test distance calculation to a point"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="TestLot",
             price=Decimal("2.50"),
@@ -1211,7 +1313,7 @@ class TestParkingLot:
     
     def test_distance_to_same_point(self):
         """Test distance to the same position is zero"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="TestLot",
             price=Decimal("2.50"),
@@ -1225,7 +1327,7 @@ class TestParkingLot:
     
     def test_distance_to_point_negative_coordinates(self):
         """Test distance with negative coordinates"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="TestLot",
             price=Decimal("2.50"),
@@ -1238,35 +1340,35 @@ class TestParkingLot:
         distance = lot.distance_to_point((0.0, 0.0))
         assert abs(distance - 5.0) < 0.001
     
-    def test_parking_lot_with_fixture(self, sample_parking_lot):
+    def test_parking_zone_with_fixture(self, sample_parking_zone):
         """Test using the sample parking lot fixture"""
-        assert sample_parking_lot.id == 1
-        assert sample_parking_lot.pseudonym == "CenterLot001"
-        assert sample_parking_lot.price == Decimal("2.50")
-        assert sample_parking_lot.maximum_capacity == 100
-        assert sample_parking_lot.current_capacity == 50
+        assert sample_parking_zone.id == 1
+        assert sample_parking_zone.pseudonym == "CenterLot001"
+        assert sample_parking_zone.price == Decimal("2.50")
+        assert sample_parking_zone.maximum_capacity == 100
+        assert sample_parking_zone.current_capacity == 50
     
-    def test_available_spots_with_fixture(self, sample_parking_lot):
+    def test_available_spots_with_fixture(self, sample_parking_zone):
         """Test available spots using fixture"""
-        assert sample_parking_lot.available_spots() == 50
+        assert sample_parking_zone.available_spots() == 50
     
-    def test_occupancy_rate_with_fixture(self, sample_parking_lot):
+    def test_occupancy_rate_with_fixture(self, sample_parking_zone):
         """Test occupancy rate using fixture"""
-        assert sample_parking_lot.occupancy_rate() == 0.5
+        assert sample_parking_zone.occupancy_rate() == 0.5
     
-    def test_is_full_with_fixture(self, sample_parking_lot):
+    def test_is_full_with_fixture(self, sample_parking_zone):
         """Test is_full using fixture"""
-        assert sample_parking_lot.is_full() is False
+        assert sample_parking_zone.is_full() is False
     
-    def test_can_accommodate_with_fixture(self, sample_parking_lot):
+    def test_can_accommodate_with_fixture(self, sample_parking_zone):
         """Test can_accommodate using fixture"""
-        assert sample_parking_lot.can_accommodate(10) is True
-        assert sample_parking_lot.can_accommodate(50) is True
-        assert sample_parking_lot.can_accommodate(51) is False
+        assert sample_parking_zone.can_accommodate(10) is True
+        assert sample_parking_zone.can_accommodate(50) is True
+        assert sample_parking_zone.can_accommodate(51) is False
     
-    def test_parking_lot_position_tuple(self):
+    def test_parking_zone_position_tuple(self):
         """Test that position is properly stored as tuple"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="TestLot",
             price=Decimal("2.50"),
@@ -1278,9 +1380,9 @@ class TestParkingLot:
         assert isinstance(lot.position, tuple)
         assert len(lot.position) == 2
     
-    def test_parking_lot_price_precision(self):
+    def test_parking_zone_price_precision(self):
         """Test decimal precision for parking price"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="PreciseLot",
             price=Decimal("3.75"),
@@ -1291,9 +1393,9 @@ class TestParkingLot:
         
         assert lot.price == Decimal("3.75")
     
-    def test_multiple_parking_lots_different_ids(self):
+    def test_multiple_parking_zones_different_ids(self):
         """Test creating multiple parking lots with different IDs"""
-        lot1 = ParkingLot(
+        lot1 = ParkingZone(
             id=1,
             pseudonym="Lot1",
             price=Decimal("2.00"),
@@ -1302,7 +1404,7 @@ class TestParkingLot:
             current_capacity=50
         )
         
-        lot2 = ParkingLot(
+        lot2 = ParkingZone(
             id=2,
             pseudonym="Lot2",
             price=Decimal("3.00"),
@@ -1314,9 +1416,9 @@ class TestParkingLot:
         assert lot1.id != lot2.id
         assert lot1.pseudonym != lot2.pseudonym
     
-    def test_parking_lot_realistic_scenario_cheap(self):
+    def test_parking_zone_realistic_scenario_cheap(self):
         """Test a realistic budget parking lot scenario"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="BudgetParking_Downtown",
             price=Decimal("1.50"),
@@ -1331,9 +1433,9 @@ class TestParkingLot:
         assert lot.can_accommodate(25) is True
         assert not lot.is_full()
     
-    def test_parking_lot_realistic_scenario_premium(self):
+    def test_parking_zone_realistic_scenario_premium(self):
         """Test a realistic premium parking lot scenario"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=2,
             pseudonym="PremiumParking_Center",
             price=Decimal("8.00"),
@@ -1348,9 +1450,9 @@ class TestParkingLot:
         assert lot.can_accommodate(2) is True
         assert lot.can_accommodate(3) is False
     
-    def test_parking_lot_comparison_different_prices(self):
+    def test_parking_zone_comparison_different_prices(self):
         """Test comparing parking lots with different prices"""
-        cheap_lot = ParkingLot(
+        cheap_lot = ParkingZone(
             id=1,
             pseudonym="CheapLot",
             price=Decimal("1.00"),
@@ -1359,7 +1461,7 @@ class TestParkingLot:
             current_capacity=50
         )
         
-        expensive_lot = ParkingLot(
+        expensive_lot = ParkingZone(
             id=2,
             pseudonym="ExpensiveLot",
             price=Decimal("10.00"),
@@ -1371,9 +1473,9 @@ class TestParkingLot:
         assert cheap_lot.price < expensive_lot.price
         assert cheap_lot.available_spots() == expensive_lot.available_spots()
     
-    def test_parking_lot_edge_case_single_spot(self):
+    def test_parking_zone_edge_case_single_spot(self):
         """Test parking lot with single spot capacity"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="SingleSpotLot",
             price=Decimal("5.00"),
@@ -1387,9 +1489,9 @@ class TestParkingLot:
         assert lot.can_accommodate(1) is True
         assert lot.can_accommodate(2) is False
     
-    def test_parking_lot_large_capacity(self):
+    def test_parking_zone_large_capacity(self):
         """Test parking lot with very large capacity"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="MegaLot",
             price=Decimal("2.00"),
@@ -1403,7 +1505,7 @@ class TestParkingLot:
         assert lot.occupancy_rate() == 0.25
         assert lot.can_accommodate(500) is True
     
-    def test_parking_lot_json_schema_example(self):
+    def test_parking_zone_json_schema_example(self):
         """Test that the example in model_config is valid"""
         example_data = {
             "id": 1,
@@ -1414,7 +1516,7 @@ class TestParkingLot:
             "current_capacity": 10
         }
         
-        lot = ParkingLot(**example_data)
+        lot = ParkingZone(**example_data)
         
         assert lot.id == 1
         assert lot.pseudonym == "CenterLot001"
@@ -1422,18 +1524,18 @@ class TestParkingLot:
         assert lot.maximum_capacity == 150
         assert lot.current_capacity == 10
     
-    def test_parking_lot_distance_realistic(self, sample_parking_lot):
+    def test_parking_zone_distance_realistic(self, sample_parking_zone):
         """Test distance calculation with realistic coordinates"""
         # Distance from sample lot to a destination
         destination = (52.5200, 13.4050)
-        distance = sample_parking_lot.distance_to_point(destination)
+        distance = sample_parking_zone.distance_to_point(destination)
         
         # Verify distance is calculated (positive value)
         assert distance > 0
     
     def test_can_accommodate_zero_spots(self):
         """Test can_accommodate with zero spots requested"""
-        lot = ParkingLot(
+        lot = ParkingZone(
             id=1,
             pseudonym="TestLot",
             price=Decimal("2.50"),

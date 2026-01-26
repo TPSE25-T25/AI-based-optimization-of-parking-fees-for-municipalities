@@ -16,19 +16,22 @@ def test_city():
     city = City(
         id=1,
         pseudonym="TestCity",
-        canvas=(1000.0, 1000.0)
+        min_latitude=49.0,
+        max_latitude=49.1,
+        min_longitude=8.4,
+        max_longitude=8.5
     )
-    
-    # Add points of interest
+
+    # Add points of interest (realistic lat/lon coordinates)
     pois = [
-        PointOfInterest(id=1, pseudonym="Downtown", position=(500.0, 500.0)),
-        PointOfInterest(id=2, pseudonym="Mall", position=(300.0, 700.0)),
-        PointOfInterest(id=3, pseudonym="University", position=(700.0, 300.0))
+        PointOfInterest(id=1, pseudonym="Downtown", position=(49.05, 8.45)),
+        PointOfInterest(id=2, pseudonym="Mall", position=(49.03, 8.47)),
+        PointOfInterest(id=3, pseudonym="University", position=(49.07, 8.43))
     ]
-    
+
     for poi in pois:
         city.add_point_of_interest(poi)
-    
+
     return city
 
 
@@ -60,16 +63,16 @@ class TestDriverGenerator:
         ids = [d.id for d in drivers]
         assert len(ids) == len(set(ids))
     
-    def test_generate_random_drivers_within_canvas(self, generator, test_city):
-        """Test that driver starting positions are within canvas bounds."""
+    def test_generate_random_drivers_within_city_bounds(self, generator, test_city):
+        """Test that driver starting positions are within city geographic bounds."""
         drivers = generator.generate_random_drivers(count=50, city=test_city)
-        
+
         for driver in drivers:
-            x, y = driver.starting_position
-            assert x >= 0
-            assert x <= test_city.canvas[0]
-            assert y >= 0
-            assert y <= test_city.canvas[1]
+            lat, lon = driver.starting_position
+            assert lat >= test_city.min_latitude
+            assert lat <= test_city.max_latitude
+            assert lon >= test_city.min_longitude
+            assert lon <= test_city.max_longitude
     
     def test_generate_random_drivers_destinations_are_pois(self, generator, test_city):
         """Test that destinations are at POI locations."""
@@ -125,7 +128,7 @@ class TestDriverGenerator:
     
     def test_generate_random_drivers_no_pois_raises_error(self, generator):
         """Test that generator raises error when city has no POIs."""
-        empty_city = City(id=2, pseudonym="EmptyCity", canvas=(1000.0, 1000.0))
+        empty_city = City(id=2, pseudonym="EmptyCity", min_latitude=49.0, max_latitude=49.1, min_longitude=8.4, max_longitude=8.5)
         
         with pytest.raises(ValueError) as exc_info:
             generator.generate_random_drivers(count=10, city=empty_city)
@@ -145,24 +148,24 @@ class TestDriverGenerator:
     def test_generate_clustered_drivers_near_centers(self, generator, test_city):
         """Test that clustered drivers start near cluster centers."""
         cluster_center = test_city.point_of_interests[0]
-        cluster_radius = 50.0
-        
+        cluster_radius_deg = 0.01  # About 1 km radius in degrees
+
         drivers = generator.generate_clustered_drivers(
             count=30,
             city=test_city,
             cluster_centers=[cluster_center],
-            cluster_radius=cluster_radius
+            cluster_radius_deg=cluster_radius_deg
         )
         
         # Most drivers should start near the cluster center
         for driver in drivers:
-            x_diff = abs(driver.starting_position[0] - cluster_center.position[0])
-            y_diff = abs(driver.starting_position[1] - cluster_center.position[1])
-            
+            lat_diff = abs(driver.starting_position[0] - cluster_center.position[0])
+            lon_diff = abs(driver.starting_position[1] - cluster_center.position[1])
+
             # Should be within reasonable distance (allowing for random spread)
             # Using 2x radius as reasonable bound due to random component
-            assert x_diff <= cluster_radius * 2
-            assert y_diff <= cluster_radius * 2
+            assert lat_diff <= cluster_radius_deg * 2
+            assert lon_diff <= cluster_radius_deg * 2
     
     def test_generate_clustered_drivers_multiple_clusters(self, generator, test_city):
         """Test clustered generation with multiple cluster centers."""
@@ -188,7 +191,7 @@ class TestDriverGenerator:
     
     def test_generate_clustered_drivers_no_pois_raises_error(self, generator):
         """Test that clustered generation requires POIs."""
-        empty_city = City(id=2, pseudonym="EmptyCity", canvas=(1000.0, 1000.0))
+        empty_city = City(id=2, pseudonym="EmptyCity", min_latitude=49.0, max_latitude=49.1, min_longitude=8.4, max_longitude=8.5)
         
         with pytest.raises(ValueError) as exc_info:
             generator.generate_clustered_drivers(
@@ -307,7 +310,7 @@ class TestDriverGenerator:
     
     def test_generate_price_sensitive_drivers_no_pois_raises_error(self, generator):
         """Test that price-sensitive generation requires POIs."""
-        empty_city = City(id=2, pseudonym="EmptyCity", canvas=(1000.0, 1000.0))
+        empty_city = City(id=2, pseudonym="EmptyCity", min_latitude=49.0, max_latitude=49.1, min_longitude=8.4, max_longitude=8.5)
         
         with pytest.raises(ValueError) as exc_info:
             generator.generate_price_sensitive_drivers(
