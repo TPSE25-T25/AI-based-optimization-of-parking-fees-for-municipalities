@@ -1,10 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
-from schemas.optimization import ParkingZoneInput, OptimizationSettings, OptimizationRequest, OptimizationResponse
-from services.nsga3_optimizer import NSGA3Optimizer
-
+from typing import List, Optional
+from services.data.osmnx_loader import OSMnxParkingLoader
 
 app = FastAPI(title="Parking Fee Optimization API", version="1.0.0")
 
@@ -22,20 +20,16 @@ app.add_middleware(
 class ParkingZone(BaseModel):
     id: int
     name: str
-    current_fee: float
-    occupancy_rate: float
-    suggested_fee: float
+    current_fee: Optional[float] = None
+    occupancy_rate: Optional[float] = None
+    suggested_fee: Optional[float] = None
+    lat: float = 0.0
+    lon: float = 0.0
+    capacity: Optional[int] = None
+    is_placeholder: bool = True  # Flag so UI/clients know data is synthetic
 
-class FeeOptimizationRequest(BaseModel):
-    zone_id: int
-    target_occupancy: float
-
-# Sample data
-parking_zones = [
-    ParkingZone(id=1, name="Downtown", current_fee=2.5, occupancy_rate=0.85, suggested_fee=3.0),
-    ParkingZone(id=2, name="Shopping District", current_fee=1.5, occupancy_rate=0.95, suggested_fee=2.0),
-    ParkingZone(id=3, name="Residential", current_fee=1.0, occupancy_rate=0.60, suggested_fee=0.8),
-]
+# Cache for loaded Karlsruhe parking zones
+parking_zones: List[ParkingZone] = []
 
 @app.get("/")
 async def root():
@@ -48,6 +42,41 @@ async def health_check():
 @app.get("/zones", response_model=List[ParkingZone])
 async def get_parking_zones():
     """Get all parking zones with current fees and optimization suggestions"""
+    global parking_zones
+
+    # Serve cached data if already loaded
+    if parking_zones:
+        return parking_zones
+
+    try:
+        # Load real parking areas from OSM (amenity=parking)
+        loader = OSMnxParkingLoader(
+            place_name="Karlsruhe, Germany",
+            center_coords=(49.0069, 8.4037)
+        )
+        raw_zones = loader.load_zones(limit=60)
+
+        parking_zones = [
+            ParkingZone(
+                id=z.zone_id,
+                name=z.name,
+                current_fee=getattr(z, "current_fee", None),
+                occupancy_rate=getattr(z, "current_occupancy", None),
+                suggested_fee=None,  # synthetic / to be generated
+                lat=z.lat,
+                lon=z.lon,
+                capacity=getattr(z, "capacity", None),
+                is_placeholder=False
+            )
+            for z in raw_zones
+        ]
+        if not parking_zones:
+            raise HTTPException(status_code=502, detail="OSM returned no parking data for Karlsruhe")
+
+    except Exception as exc:
+        print(f"OSM load failed: {exc}")
+        raise HTTPException(status_code=502, detail="OSM load failed for Karlsruhe")
+
     return parking_zones
 
 @app.get("/zones/{zone_id}", response_model=ParkingZone)
@@ -58,16 +87,9 @@ async def get_parking_zone(zone_id: int):
             return zone
     return {"error": "Zone not found"}
 
-@app.post("/optimize", response_model=OptimizationResponse)
-async def optimize_fee(request: OptimizationRequest):
-    """
-    Endpoint to execute the NSGA-III optimization algorithm.
-    """
-    #Create an instance of the NSGA3Optimizer
-    optimizer = NSGA3Optimizer()
-    
-    #Call the optimize method and return the result
-    return optimizer.optimize(request)
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 
 
 
