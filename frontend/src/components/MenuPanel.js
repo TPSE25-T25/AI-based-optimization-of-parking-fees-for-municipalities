@@ -1,9 +1,16 @@
 import React from 'react';
 
-export default function MenuPanel({ open, onClose, weights, setWeights }) {
+export default function MenuPanel({ open, onClose, weights, setWeights, onApply, hasOptimizationResults }) {
   if (!open) return null;
 
   const update = (key, value) => setWeights(prev => ({ ...prev, [key]: value }));
+
+  const handleApply = async () => {
+    if (onApply) {
+      await onApply();
+    }
+    onClose();
+  };
 
   return (
     <div className="menu-panel">
@@ -28,8 +35,21 @@ export default function MenuPanel({ open, onClose, weights, setWeights }) {
         ))}
       </div>
 
+      {!hasOptimizationResults && (
+        <div style={{ padding: '10px', backgroundColor: '#fff3cd', borderRadius: '5px', marginBottom: '10px' }}>
+          <small>⚠️ Run optimization first to apply weights</small>
+        </div>
+      )}
+
       <div style={{ textAlign: 'right' }}>
-        <button className="btn" onClick={onClose}>Done</button>
+        <button 
+          className="btn" 
+          onClick={handleApply}
+          disabled={!hasOptimizationResults}
+          style={{ opacity: hasOptimizationResults ? 1 : 0.5, cursor: hasOptimizationResults ? 'pointer' : 'not-allowed' }}
+        >
+          Apply Weights
+        </button>
       </div>
     </div>
   );

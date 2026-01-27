@@ -82,3 +82,10 @@ class OptimizationResponse(BaseModel):
     The API response: A list of optimal scenarios (Pareto Front).
     """
     scenarios: List[PricingScenario]
+
+class WeightSelectionRequest(BaseModel):
+    """
+    Request for selecting the best solution from optimization results based on user preferences.
+    """
+    optimization_response: OptimizationResponse
+    weights: dict = Field(..., description="Weights for each objective (revenue, occupancy, drop, fairness)")
