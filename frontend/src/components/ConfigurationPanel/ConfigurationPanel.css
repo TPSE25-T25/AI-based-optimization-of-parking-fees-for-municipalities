@@ -1,0 +1,99 @@
+.configuration-panel {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.configuration-form {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #ddd;
+  padding: 1rem;
+  gap: 1rem;
+  overflow: visible;
+}
+
+.configuration-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  flex: 1;
+  overflow: visible;
+}
+
+.configuration-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  position: relative;
+}
+
+.configuration-form label {
+  font-weight: 600;
+  font-size: 13px;
+  color: #333;
+}
+
+.configuration-input-description {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  font-size: 12px;
+  color: #333;
+  visibility: hidden;
+  background-color: #fffbea;
+  padding: 8px 10px;
+  border-radius: 3px;
+  border: 1px solid #ffc107;
+  white-space: normal;
+  max-width: 350px;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.configuration-input-group:hover .configuration-input-description {
+  visibility: visible;
+  opacity: 1;
+}
+
+.configuration-form input {
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+  border: 1px solid #ccc;
+  font-size: 13px;
+}
+
+.configuration-form input:focus {
+  outline: none;
+  border-color: #2b80ff;
+  box-shadow: 0 0 0 2px rgba(43, 128, 255, 0.1);
+}
+
+.configuration-actions {
+  display: flex;
+  gap: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #ddd;
+}
+
+.configuration-actions button {
+  flex: 1;
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+  border: 1px solid #2b80ff;
+  background-color: #e6f2ff;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.configuration-actions button:hover {
+  background-color: #cce5ff;
+}
+
+.configuration-actions button:active {
+  transform: scale(0.98);
+}
+

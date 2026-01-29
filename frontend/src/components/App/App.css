@@ -1,0 +1,293 @@
+.app {
+  color: #222;
+  height: 100vh;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+/* Left sidebar: always visible navigation */
+.top-info {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 16px 20px;
+  gap: 12px;
+  background: linear-gradient(180deg, #f8f9fb, #ffffff);
+  border-right: 1px solid #ddd;
+  flex-shrink: 0;
+  width: 300px;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+.top-info h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.top-info .muted {
+  margin: 0;
+  color: #666;
+  font-size: 12px;
+}
+
+.optimizer-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.optimizer-label {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.optimizer-select {
+  padding: 6px 8px;
+  font-size: 12px;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+}
+
+.optimizer-button {
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  background: #2b80ff;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.optimizer-button:hover:not(:disabled) {
+  background: #1a6fd9;
+}
+
+.optimizer-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.map-wrapper {
+  flex: 1;
+  overflow: hidden;
+  padding: 12px;
+  min-width: 0;
+}
+
+.map-area {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.map-area .leaflet-container {
+  z-index: 1;
+  height: 100%;
+  background: #f0f0f0;
+}
+
+.menu-toggle {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 600;
+  background: #fff;
+  border: 1px solid #ddd;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.menu-toggle:hover {
+  background: #f8f8f8;
+}
+
+/* Responsive sidebar widths */
+@media (max-width: 1199px) and (min-width: 992px) {
+  .top-info {
+    width: 280px;
+    padding: 14px 16px;
+    gap: 10px;
+  }
+
+  .top-info h1 {
+    font-size: 16px;
+  }
+
+  .top-info .muted {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 991px) and (min-width: 768px) {
+  .top-info {
+    width: 240px;
+    padding: 12px 14px;
+    gap: 8px;
+  }
+
+  .top-info h1 {
+    font-size: 15px;
+  }
+
+  .top-info .muted {
+    font-size: 10px;
+  }
+
+  .optimizer-row {
+    gap: 6px;
+  }
+
+  .optimizer-label {
+    font-size: 11px;
+  }
+
+  .optimizer-select,
+  .optimizer-button {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 767px) {
+  .top-info {
+    width: 200px;
+    padding: 10px 12px;
+    gap: 6px;
+  }
+
+  .top-info h1 {
+    font-size: 14px;
+    margin: 4px 0 !important;
+  }
+
+  .top-info .muted {
+    font-size: 10px;
+    margin: 2px 0 !important;
+  }
+
+  .optimizer-row {
+    gap: 4px;
+  }
+
+  .optimizer-label {
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  .optimizer-select,
+  .optimizer-button {
+    padding: 3px 6px;
+    font-size: 10px;
+  }
+
+  .map-wrapper {
+    padding: 8px;
+  }
+}
+
+@media (max-width: 576px) {
+  .top-info {
+    width: 180px;
+    padding: 8px 10px;
+    gap: 4px;
+  }
+
+  .top-info h1 {
+    font-size: 13px;
+  }
+
+  .top-info .muted {
+    font-size: 9px;
+  }
+
+  .optimizer-label {
+    width: auto;
+    font-size: 9px;
+  }
+
+  .optimizer-select,
+  .optimizer-button {
+    padding: 2px 5px;
+    font-size: 9px;
+  }
+
+  .map-wrapper {
+    padding: 6px;
+  }
+}
+
+@media (max-width: 375px) {
+  .top-info {
+    width: 160px;
+    padding: 6px 8px;
+  }
+
+  .top-info h1 {
+    font-size: 12px;
+  }
+
+  .top-info .muted {
+    display: none;
+  }
+
+  .optimizer-label {
+    display: none;
+  }
+
+  .optimizer-select,
+  .optimizer-button {
+    padding: 2px 4px;
+    font-size: 8px;
+  }
+}
+
+/* Results Management Buttons: for the optimization results */
+.results-actions {
+  display: flex;
+  gap: 0.5rem;
+  padding: 1rem;
+  border-top: 1px solid #ddd;
+  margin-top: auto;
+}
+
+.results-button {
+  flex: 1;
+  padding: 0.75rem;
+  background-color: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.results-button:hover:not(:disabled) {
+  background-color: #e0e0e0;
+  border-color: #999;
+}
+
+.results-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.load-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

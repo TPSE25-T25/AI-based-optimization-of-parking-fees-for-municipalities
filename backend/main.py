@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 from services.data.karlsruhe_loader import KarlsruheLoader
-from backend.services.optimizer.schemas.optimization_schema import OptimizationRequest, OptimizationResponse, PricingScenario, WeightSelectionRequest
+from backend.services.optimizer.schemas.optimization_schema import OptimizationRequest, OptimizationResponse, PricingScenario, WeightSelectionRequest, OptimizationSettings
 from backend.services.optimizer.nsga3_optimizer_elasticity import NSGA3OptimizerElasticity
 from backend.services.optimizer.nsga3_optimizer_agent import NSGA3OptimizerAgentBased
 
@@ -58,9 +58,28 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
+# frontend now pulls the settings metadata dynamically from 
+# a new backend endpoint and uses it for defaults, min/max, 
+#and descriptions
+@app.get("/optimization-settings")
+async def get_optimization_settings():
+    """Expose optimization settings defaults/limits for the frontend ConfigurationPanel."""
+    fields = getattr(OptimizationSettings, "model_fields", None) or OptimizationSettings.__fields__
+
+    def serialize_field(field):
+        info = getattr(field, "field_info", None)
+        return {
+            "default": getattr(info, "default", None) if info else getattr(field, "default", None),
+            "min": getattr(info, "ge", None),
+            "max": getattr(info, "le", None),
+            "description": getattr(info, "description", None),
+        }
+
+    return {name: serialize_field(field) for name, field in fields.items()}
+
 @app.get("/zones", response_model=List[ParkingZone])
 async def get_parking_zones():
-    """Get all parking zones with current fees and optimization suggestions"""
+    """Return all parking zones for the map (used on initial frontend load)."""
     global parking_zones
 
     # Serve cached data if already loaded
@@ -109,9 +128,7 @@ async def get_parking_zone(zone_id: int):
 
 @app.post("/optimize_elasticity", response_model=OptimizationResponse)
 async def optimize_fee_elasticity(request: OptimizationRequest):
-    """
-    Endpoint to execute the NSGA-III optimization algorithm.
-    """
+    """Run NSGA-III optimization (elasticity model) and return Pareto scenarios."""
     #Create an instance of the NSGA3Optimizer
     
     #Call the optimize method and return the result
@@ -120,9 +137,7 @@ async def optimize_fee_elasticity(request: OptimizationRequest):
 
 @app.post("/optimize_agent", response_model=OptimizationResponse)
 async def optimize_fee_agent(request: OptimizationRequest):
-    """
-    Endpoint to execute the NSGA-III optimization algorithm.
-    """
+    """Run NSGA-III optimization (agent-based model) and return Pareto scenarios."""
     #Create an instance of the NSGA3Optimizer
     
     #Call the optimize method and return the result
@@ -130,10 +145,12 @@ async def optimize_fee_agent(request: OptimizationRequest):
 
 @app.post("/select_best_solution_elasticity", response_model=PricingScenario)
 async def select_elasticity_best_solution_by_weights(request: WeightSelectionRequest) -> PricingScenario:
+    """Select the best scenario using user weights (elasticity results)."""
     return elasticity_optimizer.select_best_solution_by_weights(request.optimization_response, request.weights)
 
 @app.post("/select_best_solution_agent", response_model=PricingScenario)
 async def select_agent_best_solution_by_weights(request: WeightSelectionRequest) -> PricingScenario:
+    """Select the best scenario using user weights (agent-based results)."""
     return agent_optimizer.select_best_solution_by_weights(request.optimization_response, request.weights)
 
 if __name__ == "__main__":
