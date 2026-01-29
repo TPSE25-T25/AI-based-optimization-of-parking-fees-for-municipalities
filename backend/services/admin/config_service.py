@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Config Service
 
@@ -27,6 +29,12 @@ class ConfigService:
             AdminConfig oder None, falls keine existiert
         """
         return self.repo.load()
+
+    def validate_config(self, cfg: AdminConfig) -> None:
+        """
+        Validiert die Konfiguration OHNE sie zu speichern.
+        """
+        validate_admin_config(cfg)
 
     def set_active_config(self, cfg: AdminConfig) -> AdminConfig:
         """
