@@ -5,6 +5,7 @@ import './App.css';
 import ParkingMap from './components/ParkingMap';
 import MenuPanel from './components/MenuPanel';
 import InfoPanel from './components/InfoPanel';
+import OptimizationSettings from './components/OptimizationSettings';
 
 const API_BASE_URL = 'http://localhost:8000';
 
@@ -20,6 +21,12 @@ function App() {
   const [optimizationResponse, setOptimizationResponse] = useState(null);
   const [optimizerType, setOptimizerType] = useState('elasticity');
   const [optimizing, setOptimizing] = useState(false);
+
+  // Optimization Settings state
+
+  const [populationSize, setPopulationSize] = useState(100);
+  const [generations, setGenerations] = useState(40);
+  const [targetOccupancy, setTargetOccupancy] = useState(0.85);
 
   useEffect(() => {
     fetchZones();
@@ -64,11 +71,13 @@ function App() {
           short_term_share: 0.5
         })),
         settings: {
-          population_size: 200,
-          generations: 50,
-          target_occupancy: 0.85
+          population_size: populationSize,
+          generations: generations,
+          target_occupancy: targetOccupancy
         }
       };
+
+      console.log(request);
 
       const endpoint = optimizerType === 'elasticity' 
         ? `${API_BASE_URL}/optimize_elasticity`
@@ -187,6 +196,16 @@ function App() {
             setWeights={setWeights}
             onApply={applyOptimizationWeights}
             hasOptimizationResults={!!optimizationResponse}
+          />
+
+          <OptimizationSettings 
+            handleSubmit={runOptimization}
+            generations={generations}
+            populationSize={populationSize}
+            targetOccupancy={targetOccupancy}
+            setGenerations={setGenerations}
+            setPopulationSize={setPopulationSize}
+            setTargetOccupancy={setTargetOccupancy}
           />
 
           {/* Interactive map */}
