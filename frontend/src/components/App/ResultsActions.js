@@ -6,7 +6,12 @@ import React from 'react';
 export default function ResultsActions({
   optimizationResponse,
   handleDownloadResults,
-  handleLoadResults,
+  dbResults,
+  selectedDbResultId,
+  setSelectedDbResultId,
+  loadDbResult,
+  refreshDbResults,
+  loadingDbResults,
 }) {
   // ===== RENDER =====
   return (
@@ -20,15 +25,37 @@ export default function ResultsActions({
         ⬇️ Download
       </button>
 
-      <label className="results-button load-button">
-        <input
-          type="file"
-          accept=".json"
-          onChange={handleLoadResults}
-          style={{ display: 'none' }}
-        />
-        📁 Load Results
-      </label>
+      <button
+        className="results-button"
+        onClick={refreshDbResults}
+        disabled={loadingDbResults}
+        title="Refresh saved results from database"
+      >
+        🔄 Refresh DB
+      </button>
+
+      <select
+        className="results-button"
+        value={selectedDbResultId || ''}
+        onChange={(e) => setSelectedDbResultId(e.target.value)}
+        title="Select a saved result"
+      >
+        <option value="">Select saved result</option>
+        {(dbResults || []).map((item) => (
+          <option key={item.id} value={item.id}>
+            #{item.id} — {new Date(item.created_at).toLocaleString()}
+          </option>
+        ))}
+      </select>
+
+      <button
+        className="results-button"
+        onClick={loadDbResult}
+        disabled={!selectedDbResultId || loadingDbResults}
+        title="Load selected result from database"
+      >
+        🗄️ Load DB
+      </button>
     </div>
   );
 }

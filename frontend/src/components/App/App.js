@@ -13,6 +13,13 @@ import ResultsActions from './ResultsActions';
 
 // ===== CONSTANTS =====
 const API_BASE_URL = 'http://localhost:8000';
+const DEFAULT_MAP_TILES = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+const DEFAULT_MAP_ZOOM = 13;
+const optimizationSettings = {
+  population_size: 200,
+  generations: 50,
+  target_occupancy: 0.85,
+};
 
 function App() {
   // ===== STATE =====
@@ -30,10 +37,14 @@ function App() {
   const [optimizationResponse, setOptimizationResponse] = useState(null);
   const [optimizerType, setOptimizerType] = useState('elasticity');
   const [optimizing, setOptimizing] = useState(false);
+  const [dbResults, setDbResults] = useState([]);
+  const [selectedDbResultId, setSelectedDbResultId] = useState('');
+  const [loadingDbResults, setLoadingDbResults] = useState(false);
 
   // ===== EFFECTS =====
   useEffect(() => {
     fetchZones();
+    fetchDbResults();
   }, []);
 
   // ===== EVENT HANDLERS =====
@@ -49,6 +60,68 @@ function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchDbResults = async () => {
+    try {
+      setLoadingDbResults(true);
+      const response = await axios.get(`${API_BASE_URL}/results`);
+      setDbResults(response.data || []);
+    } catch (err) {
+      console.error('Error fetching DB results:', err);
+    } finally {
+      setLoadingDbResults(false);
+    }
+  };
+
+  const buildMapCenter = (sourceZones) => {
+    if (!sourceZones.length) return [49.0069, 8.4037];
+    const avgLat = sourceZones.reduce((sum, zone) => sum + (zone.position?.[0] || 0), 0) / sourceZones.length;
+    const avgLon = sourceZones.reduce((sum, zone) => sum + (zone.position?.[1] || 0), 0) / sourceZones.length;
+    return [avgLat, avgLon];
+  };
+
+  const buildMapConfig = (sourceZones) => ({
+    center: buildMapCenter(sourceZones),
+    zoom: DEFAULT_MAP_ZOOM,
+    tiles: DEFAULT_MAP_TILES,
+  });
+
+  const buildMapSnapshotFromZones = (sourceZones) =>
+    sourceZones.map((zone) => ({
+      id: zone.id,
+      name: zone.name || `Zone ${zone.id}`,
+      position: zone.position,
+      current_fee: zone.current_fee,
+      maximum_capacity: zone.maximum_capacity,
+      current_capacity: zone.current_capacity,
+      new_fee: zone.new_fee,
+      predicted_occupancy: zone.predicted_occupancy,
+      predicted_revenue: zone.predicted_revenue,
+    }));
+
+  const saveResultToDb = async ({ mapSnapshot, bestScenario }) => {
+    const parameters = {
+      optimizer_type: optimizerType,
+      weights,
+      settings: optimizationSettings,
+      zone_count: zones.length,
+      timestamp: new Date().toISOString(),
+    };
+
+    await axios.post(
+      `${API_BASE_URL}/results`,
+      {
+        parameters,
+        map_config: buildMapConfig(zones),
+        map_snapshot: mapSnapshot,
+        best_scenario: bestScenario || null,
+      },
+      {
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+    fetchDbResults();
   };
 
   const runOptimization = async () => {
@@ -75,11 +148,7 @@ function App() {
           elasticity: -0.4,
           short_term_share: 0.5,
         })),
-        settings: {
-          population_size: 200,
-          generations: 50,
-          target_occupancy: 0.85,
-        },
+        settings: optimizationSettings,
       };
 
       const endpoint =
@@ -155,6 +224,33 @@ function App() {
         })
       );
 
+      const zoneById = new Map(zones.map((zone) => [zone.id, zone]));
+      const mapSnapshot = selectedSolution.zones.map((zoneResult) => {
+        const original = zoneById.get(zoneResult.id);
+        return {
+          id: zoneResult.id,
+          name: original?.name || `Zone ${zoneResult.id}`,
+          position: original?.position,
+          current_fee: original?.current_fee,
+          maximum_capacity: original?.maximum_capacity,
+          current_capacity: original?.current_capacity,
+          new_fee: zoneResult.new_fee,
+          predicted_occupancy: zoneResult.predicted_occupancy,
+          predicted_revenue: zoneResult.predicted_revenue,
+        };
+      });
+
+      await saveResultToDb({
+        mapSnapshot,
+        bestScenario: {
+          scenario_id: selectedSolution.scenario_id,
+          score_revenue: selectedSolution.score_revenue,
+          score_occupancy_gap: selectedSolution.score_occupancy_gap,
+          score_demand_drop: selectedSolution.score_demand_drop,
+          score_user_balance: selectedSolution.score_user_balance,
+        },
+      });
+
       console.log('Applied optimization with weights:', weights);
     } catch (err) {
       console.error('Error applying optimization weights:', err);
@@ -185,37 +281,63 @@ function App() {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       console.log(`Downloaded results: ${filename}`);
+
+      if (zones.length > 0) {
+        const mapSnapshot = buildMapSnapshotFromZones(zones);
+        saveResultToDb({ mapSnapshot, bestScenario: null });
+      }
     } catch (err) {
       console.error('Error downloading results:', err);
       setError('Failed to download optimization results.');
     }
   };
 
-  // Load optimization results from JSON file
-  const handleLoadResults = (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
+  const loadDbResult = async () => {
+    if (!selectedDbResultId) return;
     try {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const content = e.target?.result;
-        if (typeof content === 'string') {
-          const results = JSON.parse(content);
-          setOptimizationResponse(results);
-          
-          console.log('Loaded optimization results with', results.scenarios?.length || 0, 'scenarios');
-          alert(`Loaded optimization results with ${results.scenarios?.length || 0} scenarios!`);
-        }
-      };
-      reader.readAsText(file);
-    } catch (err) {
-      console.error('Error loading results:', err);
-      setError('Failed to load optimization results. Make sure the file is valid JSON.');
-    }
+      setLoading(true);
+      setError(null);
 
-    // Reset file input
-    event.target.value = '';
+      const response = await axios.get(`${API_BASE_URL}/results/${selectedDbResultId}`);
+      const result = response.data;
+
+      if (!result?.map_snapshot || result.map_snapshot.length === 0) {
+        setError('No map snapshot found in the selected result.');
+        return;
+      }
+
+      setZones(
+        result.map_snapshot.map((zone) => ({
+          id: zone.id,
+          name: zone.name,
+          position: zone.position,
+          current_fee: zone.current_fee ?? 0,
+          maximum_capacity: zone.maximum_capacity ?? 0,
+          current_capacity: zone.current_capacity ?? 0,
+          new_fee: zone.new_fee,
+          predicted_occupancy: zone.predicted_occupancy,
+          predicted_revenue: zone.predicted_revenue,
+        }))
+      );
+
+      const savedWeights = result.parameters?.weights;
+      if (savedWeights) {
+        setWeights((prev) => ({ ...prev, ...savedWeights }));
+      }
+
+      const savedOptimizer = result.parameters?.optimizer_type;
+      if (savedOptimizer) {
+        setOptimizerType(savedOptimizer);
+      }
+
+      setSelectedZoneId(null);
+      setOptimizationResponse(null);
+    } catch (err) {
+      console.error('Error loading DB result:', err);
+      setError('Failed to load result from database.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // ===== RENDER =====
@@ -240,7 +362,12 @@ function App() {
         <ResultsActions
           optimizationResponse={optimizationResponse}
           handleDownloadResults={handleDownloadResults}
-          handleLoadResults={handleLoadResults}
+          dbResults={dbResults}
+          selectedDbResultId={selectedDbResultId}
+          setSelectedDbResultId={setSelectedDbResultId}
+          loadDbResult={loadDbResult}
+          refreshDbResults={fetchDbResults}
+          loadingDbResults={loadingDbResults}
         />
       </div>
 
