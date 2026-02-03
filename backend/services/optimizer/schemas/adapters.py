@@ -12,7 +12,7 @@ from decimal import Decimal
 import random
 import numpy as np
 
-from backend.services.data.driver_generator import DriverGenerator
+from backend.services.data.generator.driver_generator import DriverGenerator
 from backend.services.data.osmnx_loader import OSMnxLoader
 from backend.services.optimizer.schemas.optimization_schema import (
     OptimizationRequest,
@@ -86,7 +86,6 @@ class SimulationAdapter:
             max_longitude=max_lon,
             parking_zones=request.zones,
             point_of_interests=loader.load_pois(20) if loader else [],
-            streets=[]  # Not needed for basic simulation
         )
 
         return city

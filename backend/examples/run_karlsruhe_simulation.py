@@ -42,7 +42,7 @@ def main():
     loader = KarlsruheLoader()
 
     # Load a large dataset to stress-test the system (OSM Fetching)
-    zones = loader.load_zones(limit=3500)
+    zones = loader.load_city(limit=3500)
 
     if not zones:
         print("❌ Abort: No zones found.")

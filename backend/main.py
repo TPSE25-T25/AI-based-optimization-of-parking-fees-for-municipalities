@@ -43,10 +43,13 @@ class ParkingZone(BaseModel):
     lon: float = 0.0
     capacity: Optional[int] = None
     is_placeholder: bool = True  # Flag so UI/clients know data is synthetic
+# Config 
+source = "mobidata" # or "mobidata"
+limit = 3000  # Max limit for MobiData API
 
 # Cache for loaded Karlsruhe parking zones
 parking_zones: List[ParkingZone] = []
-loader = KarlsruheLoader()
+loader = KarlsruheLoader(source=source)
 agent_optimizer = NSGA3OptimizerAgentBased()
 elasticity_optimizer = NSGA3OptimizerElasticity()
 
@@ -68,8 +71,8 @@ async def get_parking_zones():
         return parking_zones
 
     try:
-        # Load real parking areas from OSM (amenity=parking)
-        raw_zones = loader.load_zones(limit=3000)
+        # Load city model which contains parking zones
+        city = loader.load_city(limit=limit)
 
         parking_zones = [
             ParkingZone(
@@ -83,19 +86,19 @@ async def get_parking_zones():
                 capacity=z.maximum_capacity if hasattr(z, 'maximum_capacity') else None,
                 is_placeholder=False
             )
-            for z in raw_zones
+            for z in city.parking_zones
         ]
         if not parking_zones:
-            raise HTTPException(status_code=502, detail="OSM returned no parking data for Karlsruhe")
+            raise HTTPException(status_code=502, detail="No parking data returned for Karlsruhe")
 
     except HTTPException:
         raise
     except Exception as exc:
         import traceback
         error_details = traceback.format_exc()
-        print(f"OSM load failed with error: {exc}")
+        print(f"Load failed with error: {exc}")
         print(f"Full traceback:\n{error_details}")
-        raise HTTPException(status_code=502, detail=f"OSM load failed for Karlsruhe: {str(exc)}")
+        raise HTTPException(status_code=502, detail=f"Load failed for Karlsruhe: {str(exc)}")
 
     return parking_zones
 
