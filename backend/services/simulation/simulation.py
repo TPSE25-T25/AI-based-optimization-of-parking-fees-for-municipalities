@@ -1,10 +1,9 @@
 """
-Parking simulation service for optimizing parking lot prices.
+Parking simulation service for optimizing parking lot current_fees.
 This module simulates driver behavior in a city with multiple parking lots.
 """
 
 from typing import List, Dict, Tuple, Optional
-from decimal import Decimal
 import statistics
 from copy import deepcopy
 from pydantic import BaseModel, Field
@@ -20,8 +19,8 @@ class SimulationMetrics(BaseModel):
     """
     
     # Revenue metrics
-    total_revenue: Decimal = Field(default=Decimal(0), description="Total revenue from all parking lots")
-    average_revenue_per_lot: Decimal = Field(default=Decimal(0), description="Average revenue per parking lot")
+    total_revenue: float = Field(default=0.0, description="Total revenue from all parking lots")
+    average_revenue_per_lot: float = Field(default=0.0, description="Average revenue per parking lot")
     
     # Occupancy metrics
     total_parked: int = Field(default=0, description="Total number of drivers who successfully parked")
@@ -31,9 +30,9 @@ class SimulationMetrics(BaseModel):
     occupancy_std_dev: float = Field(default=0.0, description="Standard deviation of occupancy rates")
     
     # Driver satisfaction metrics
-    average_driver_cost: Decimal = Field(default=Decimal(0), description="Average total cost per driver")
+    average_driver_cost: float = Field(default=0.0, description="Average total cost per driver")
     average_walking_distance: float = Field(default=0.0, description="Average walking distance to destination")
-    average_price_paid: Decimal = Field(default=Decimal(0), description="Average parking price paid")
+    average_current_fee_paid: float = Field(default=0.0, description="Average parking current_fee paid")
     
     # Efficiency metrics
     utilization_rate: float = Field(default=0.0, description="Percentage of capacity utilized")
@@ -41,7 +40,7 @@ class SimulationMetrics(BaseModel):
     
     # Per-lot metrics
     lot_occupancy_rates: Dict[int, float] = Field(default_factory=dict, description="Occupancy rate per lot ID")
-    lot_revenues: Dict[int, Decimal] = Field(default_factory=dict, description="Revenue per lot ID")
+    lot_revenues: Dict[int, float] = Field(default_factory=dict, description="Revenue per lot ID")
     
     class Config:
         arbitrary_types_allowed = True
@@ -54,7 +53,7 @@ class DriverDecision:
     
     def __init__(
         self,
-        price_weight: float = 1.0,
+        current_fee_weight: float = 1.0,
         distance_to_lot_weight: float = 0.5,
         walking_distance_weight: float = 1.5,
         availability_weight: float = 0.3
@@ -63,12 +62,12 @@ class DriverDecision:
         Initialize driver decision weights.
         
         Args:
-            price_weight: Weight for parking price consideration
+            current_fee_weight: Weight for parking current_fee consideration
             distance_to_lot_weight: Weight for driving distance to lot
             walking_distance_weight: Weight for walking from lot to destination
             availability_weight: Weight for lot availability (penalty for fuller lots)
         """
-        self.price_weight = price_weight
+        self.current_fee_weight = current_fee_weight
         self.distance_to_lot_weight = distance_to_lot_weight
         self.walking_distance_weight = walking_distance_weight
         self.availability_weight = availability_weight
@@ -77,7 +76,7 @@ class DriverDecision:
         self,
         driver: Driver,
         parking_zone: ParkingZone,
-        normalize_price: float = 10.0,
+        normalize_current_fee: float = 10.0,
         normalize_distance: float = 100.0
     ) -> float:
         """
@@ -87,14 +86,14 @@ class DriverDecision:
         Args:
             driver: The driver making the decision
             parking_zone: The parking lot being evaluated
-            normalize_price: Normalization factor for price
+            normalize_current_fee: Normalization factor for current_fee
             normalize_distance: Normalization factor for distances
         
         Returns:
             Score value (lower is better)
         """
-        # Price component (normalized)
-        price_score = float(parking_zone.price) / normalize_price
+        # current_fee component (normalized)
+        current_fee_score = float(parking_zone.current_fee) / normalize_current_fee
         
         # Distance from driver's current position to parking lot
         distance_to_lot = self._calculate_distance(driver.starting_position, parking_zone.position)
@@ -109,7 +108,7 @@ class DriverDecision:
         
         # Weighted sum
         total_score = (
-            self.price_weight * price_score +
+            self.current_fee_weight * current_fee_score +
             self.distance_to_lot_weight * distance_to_lot_score +
             self.walking_distance_weight * walking_distance_score +
             self.availability_weight * availability_penalty
@@ -138,7 +137,7 @@ class DriverDecision:
         # Filter lots that driver can afford
         affordable_lots = [
             lot for lot in available_lots
-            if lot.price <= driver.max_parking_price
+            if lot.current_fee <= driver.max_parking_current_fee
         ]
         
         if not affordable_lots:
@@ -170,7 +169,7 @@ class ParkingSimulation:
     def __init__(
         self,
         decision_maker: Optional[DriverDecision] = None,
-        rejection_penalty: Decimal = Decimal('100.0')
+        rejection_penalty: float = 100.0
     ):
         """
         Initialize the simulation engine.
@@ -208,12 +207,12 @@ class ParkingSimulation:
                 lot.current_capacity = 0
         
         # Initialize metrics tracking
-        total_revenue = Decimal(0)
-        total_driver_cost = Decimal(0)
+        total_revenue = 0.0
+        total_driver_cost = 0.0
         total_walking_distance = 0.0
         parked_count = 0
         rejected_count = 0
-        lot_revenues: Dict[int, Decimal] = {lot.id: Decimal(0) for lot in city_copy.parking_zones}
+        lot_revenues: Dict[int, float] = {lot.id: 0.0 for lot in city_copy.parking_zones}
         
         # Simulate each driver
         for driver in drivers:
@@ -228,7 +227,7 @@ class ParkingSimulation:
                 selected_lot.current_capacity += 1
                 
                 # Calculate costs
-                parking_cost = selected_lot.price * Decimal(driver.desired_parking_time) / Decimal(60)
+                parking_cost = selected_lot.current_fee * driver.desired_parking_time / 60
                 walking_distance = selected_lot.distance_to_point(driver.destination)
                 
                 # Update metrics
@@ -256,15 +255,15 @@ class ParkingSimulation:
         # Construct metrics object
         metrics = SimulationMetrics(
             total_revenue=total_revenue,
-            average_revenue_per_lot=total_revenue / len(city_copy.parking_zones) if city_copy.parking_zones else Decimal(0),
+            average_revenue_per_lot=total_revenue / len(city_copy.parking_zones) if city_copy.parking_zones else 0.0,
             total_parked=parked_count,
             total_rejected=rejected_count,
             overall_occupancy_rate=city_copy.city_occupancy_rate(),
             occupancy_variance=occupancy_variance,
             occupancy_std_dev=occupancy_std_dev,
-            average_driver_cost=total_driver_cost / total_drivers if total_drivers > 0 else Decimal(0),
+            average_driver_cost=total_driver_cost / total_drivers if total_drivers > 0 else 0.0,
             average_walking_distance=total_walking_distance / parked_count if parked_count > 0 else 0.0,
-            average_price_paid=total_revenue / parked_count if parked_count > 0 else Decimal(0),
+            average_current_fee_paid=total_revenue / parked_count if parked_count > 0 else 0.0,
             utilization_rate=city_copy.city_occupancy_rate(),
             rejection_rate=rejected_count / total_drivers if total_drivers > 0 else 0.0,
             lot_occupancy_rates=lot_occupancy_rates,
@@ -273,35 +272,35 @@ class ParkingSimulation:
         
         return metrics
     
-    def evaluate_price_configuration(
+    def evaluate_current_fee_configuration(
         self,
         city: City,
         drivers: List[Driver],
-        price_vector: List[Decimal],
+        current_fee_vector: List[float],
         objectives: List[str] = None
     ) -> Dict[str, float]:
         """
-        Evaluate a specific price configuration for optimization algorithms.
+        Evaluate a specific current_fee configuration for optimization algorithms.
         This is the interface that NSGA-II or other optimizers would call.
         
         Args:
             city: City model
             drivers: List of drivers
-            price_vector: List of prices for each parking lot (ordered by lot ID)
+            current_fee_vector: List of current_fees for each parking lot (ordered by lot ID)
             objectives: List of objective names to return (None = all)
         
         Returns:
             Dictionary of objective values
         """
-        # Create city copy and apply prices
+        # Create city copy and apply current_fees
         city_copy = deepcopy(city)
         sorted_lots = sorted(city_copy.parking_zones, key=lambda x: x.id)
         
-        if len(price_vector) != len(sorted_lots):
-            raise ValueError(f"Price vector length {len(price_vector)} doesn't match parking lot count {len(sorted_lots)}")
+        if len(current_fee_vector) != len(sorted_lots):
+            raise ValueError(f"current_fee vector length {len(current_fee_vector)} doesn't match parking lot count {len(sorted_lots)}")
         
-        for lot, price in zip(sorted_lots, price_vector):
-            lot.price = price
+        for lot, current_fee in zip(sorted_lots, current_fee_vector):
+            lot.current_fee = current_fee
         
         # Run simulation
         metrics = self.run_simulation(city_copy, drivers, reset_capacity=True)
@@ -343,7 +342,7 @@ class SimulationBatch:
         self,
         city: City,
         driver_sets: List[List[Driver]],
-        price_vector: Optional[List[Decimal]] = None
+        current_fee_vector: Optional[List[float]] = None
     ) -> List[SimulationMetrics]:
         """
         Run multiple simulations with different driver sets.
@@ -351,7 +350,7 @@ class SimulationBatch:
         Args:
             city: City model
             driver_sets: List of driver lists (each is one simulation run)
-            price_vector: Optional price configuration to apply
+            current_fee_vector: Optional current_fee configuration to apply
         
         Returns:
             List of SimulationMetrics for each run
@@ -359,11 +358,11 @@ class SimulationBatch:
         results = []
         
         for drivers in driver_sets:
-            if price_vector:
+            if current_fee_vector:
                 city_copy = deepcopy(city)
                 sorted_lots = sorted(city_copy.parking_zones, key=lambda x: x.id)
-                for lot, price in zip(sorted_lots, price_vector):
-                    lot.price = price
+                for lot, current_fee in zip(sorted_lots, current_fee_vector):
+                    lot.current_fee = current_fee
                 metrics = self.simulation.run_simulation(city_copy, drivers)
             else:
                 metrics = self.simulation.run_simulation(city, drivers)

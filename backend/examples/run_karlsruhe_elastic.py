@@ -14,7 +14,7 @@ USER_WEIGHTS = {
     "revenue": 60,      # Priority: Maximize Revenue
     "occupancy": 20,    # Priority: Optimize Occupancy (Target 90%)
     "drop": 10,         # Priority: Minimize Demand Drop (Don't scare away cars)
-    "fairness": 10,     # Priority: Maximize Fairness (Avoid price shocks)
+    "fairness": 10,     # Priority: Maximize Fairness (Avoid current_fee shocks)
 }
 
 # --- 3. MAIN EXECUTION PIPELINE ---

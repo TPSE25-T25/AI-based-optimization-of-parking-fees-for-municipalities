@@ -11,11 +11,11 @@ from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.sampling.rnd import FloatRandomSampling
 from pymoo.operators.mutation.pm import PM
 
-from backend.schemas.optimization_schema import OptimizationRequest, OptimizationResponse, PricingScenario, OptimizedZoneResult, OptimizationSettings, ParkingZoneInput
+from backend.services.optimizer.schemas.optimization_schema import OptimizationRequest, OptimizationResponse, PricingScenario, OptimizedZoneResult
 
 class NSGA3Optimizer(ABC):
-    """
-    Abstract base class for NSGA-III Parking Price Optimization.
+    """ 
+    Abstract base class for NSGA-III Parking current_fee Optimization.
 
     Provides the NSGA-III algorithm framework and utilities.
     Subclasses must implement _simulate_scenario() for evaluation.
@@ -42,7 +42,7 @@ class NSGA3Optimizer(ABC):
 
         data = {                                                                    #Dictionary to hold all extracted data
 
-            "current_prices": np.array([float(z.price) for z in zones]),            # Current prices for all zones
+            "current_current_fees": np.array([float(z.current_fee) for z in zones]),            # Current current_fees for all zones
 
 
             "min_fees": np.array([z.min_fee for z in zones]),                       # minimum fees for all zones
@@ -58,15 +58,15 @@ class NSGA3Optimizer(ABC):
         return data
 
     @abstractmethod
-    def _simulate_scenario(self, prices: np.ndarray, request: OptimizationRequest) -> Tuple[float, float, float, float]:
+    def _simulate_scenario(self, current_fees: np.ndarray, request: OptimizationRequest) -> Tuple[float, float, float, float]:
         """
-        Evaluate a price vector and return objectives.
+        Evaluate a current_fee vector and return objectives.
 
         This is the main evaluation method called by ParkingProblem._evaluate() during optimization.
         Must be implemented by subclasses.
 
         Args:
-            prices: Price vector for all zones
+            current_fees: current_fee vector for all zones
             request: Optimization request with zones and settings
 
         Returns:
@@ -75,15 +75,15 @@ class NSGA3Optimizer(ABC):
         pass
 
     @abstractmethod
-    def _get_detailed_results(self, prices: np.ndarray, data: dict) -> dict:
+    def _get_detailed_results(self, current_fees: np.ndarray, data: dict) -> dict:
         """
-        Get detailed results (occupancy, revenue) for a price vector.
+        Get detailed results (occupancy, revenue) for a current_fee vector.
 
         Called after optimization to build the final response with zone-level details.
         Must be implemented by subclasses.
 
         Args:
-            prices: Price vector for all zones
+            current_fees: current_fee vector for all zones
             data: Dictionary with zone data (from _convert_request_to_numpy)
 
         Returns:
@@ -104,7 +104,7 @@ class NSGA3Optimizer(ABC):
         # Number of decision variables = number of zones
         n_vars = len(request.zones)
 
-        # Step 2: Set price bounds per zone
+        # Step 2: Set current_fee bounds per zone
         xl = data["min_fees"]
         xu = data["max_fees"]
 
@@ -117,7 +117,7 @@ class NSGA3Optimizer(ABC):
                 self.req = req
 
             def _evaluate(self, x, out, *args, **kwargs):
-                # x contains prices directly for each zone
+                # x contains current_fees directly for each zone
                 f1, f2, f3, f4 = self.optimizer._simulate_scenario(x, self.req)
 
                 out["F"] = [-f1, f2, f3, f4]
@@ -161,10 +161,10 @@ class NSGA3Optimizer(ABC):
         X = np.atleast_2d(res.X)
         F = np.atleast_2d(res.F)
 
-        for i, (prices, objectives) in enumerate(zip(X, F)):
+        for i, (current_fees, objectives) in enumerate(zip(X, F)):
 
-            # Get detailed results for this price vector
-            detailed_results = self._get_detailed_results(prices, data)
+            # Get detailed results for this current_fee vector
+            detailed_results = self._get_detailed_results(current_fees, data)
 
             new_occupancy = detailed_results["occupancy"]
             revenue_vector = detailed_results["revenue"]
@@ -173,8 +173,8 @@ class NSGA3Optimizer(ABC):
             zone_results = []
             for j, zone in enumerate(request.zones):                            # Iterate through each zone
                 zone_results.append(OptimizedZoneResult(                        # Build result object for each zone
-                    zone_id=zone.id,
-                    new_fee=round(prices[j], 2),
+                    id=zone.id,
+                    new_fee=round(current_fees[j], 2),
                     predicted_occupancy=float(new_occupancy[j]),
                     predicted_revenue=round(revenue_vector[j], 2)
                 ))
@@ -194,8 +194,7 @@ class NSGA3Optimizer(ABC):
         computation_time = time.time() - start_time
 
         return OptimizationResponse(
-            scenarios=final_scenarios,
-            computation_time_seconds=round(computation_time, 2)
+            scenarios=final_scenarios
         )
     
 

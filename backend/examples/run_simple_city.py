@@ -1,9 +1,8 @@
 import os
-from decimal import Decimal
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
-from backend.services.optimizer.schemas.optimization_schema import OptimizationRequest, OptimizationSettings, ParkingZoneInput
+from backend.services.optimizer.schemas.optimization_schema import OptimizationRequest, OptimizationSettings, ParkingZone
 from backend.services.optimizer.nsga3_optimizer_elasticity import NSGA3OptimizerElasticity
 
 def run_ultimate_table_test():
@@ -14,24 +13,24 @@ def run_ultimate_table_test():
     # 1. TEST-DATEN (Deine simple Gemeinde)
     # besser: viele Szenarien pro Zone, damit der Pareto-Front sichtbar wird
     zones = [
-        ParkingZoneInput(
+        ParkingZone(
             id=1,
-            pseudonym="Zentrum",
+            name="Zentrum",
             maximum_capacity=100,
             current_capacity=95,  # 95% occupancy = 95 spots
-            price=Decimal("2.00"),
+            current_fee=2.00,
             position=(0.0, 0.0),  # Placeholder position
             short_term_share=0.7,
             elasticity=-0.4,
             min_fee=1.0,
             max_fee=8.0
         ),
-        ParkingZoneInput(
+        ParkingZone(
             id=2,
-            pseudonym="Dorf",
+            name="Dorf",
             maximum_capacity=50,
             current_capacity=10,  # 20% occupancy = 10 spots
-            price=Decimal("3.00"),
+            current_fee=3.00,
             position=(1.0, 1.0),  # Placeholder position
             short_term_share=0.2,
             elasticity=-0.6,

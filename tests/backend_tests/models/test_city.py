@@ -3,7 +3,6 @@ Unit tests for City and PointOfInterest models
 """
 
 import pytest
-from decimal import Decimal
 from pydantic import ValidationError
 from backend.models.city import City, PointOfInterest, ParkingZone
 
@@ -15,20 +14,20 @@ class TestPointOfInterest:
         """Test creating a valid point of interest"""
         poi = PointOfInterest(
             id=1,
-            pseudonym="CityHall",
+            name="CityHall",
             position=(52.5200, 13.4050)
         )
         
         assert poi.id == 1
-        assert poi.pseudonym == "CityHall"
+        assert poi.name == "CityHall"
         assert poi.position == (52.5200, 13.4050)
     
-    def test_poi_pseudonym_validation(self):
-        """Test that pseudonym cannot be empty"""
+    def test_poi_name_validation(self):
+        """Test that name cannot be empty"""
         with pytest.raises(ValidationError):
             PointOfInterest(
                 id=1,
-                pseudonym="",
+                name="",
                 position=(52.5200, 13.4050)
             )
     
@@ -36,7 +35,7 @@ class TestPointOfInterest:
         """Test distance calculation from POI to a point"""
         poi = PointOfInterest(
             id=1,
-            pseudonym="CityHall",
+            name="CityHall",
             position=(0.0, 0.0)
         )
         
@@ -48,7 +47,7 @@ class TestPointOfInterest:
         """Test distance to the same point is zero"""
         poi = PointOfInterest(
             id=1,
-            pseudonym="Station",
+            name="Station",
             position=(10.0, 20.0)
         )
         
@@ -65,11 +64,13 @@ class TestCity:
         """Fixture for a sample parking lot"""
         return ParkingZone(
             id=1,
-            pseudonym="CenterLot001",
-            price=Decimal("2.50"),
+            name="CenterLot001",
+            current_fee=2.50,
             position=(49.05, 8.45),
             maximum_capacity=100,
-            current_capacity=50
+            current_capacity=50,
+            min_fee=1.00,
+            max_fee=5.00
         )
 
     @pytest.fixture
@@ -77,7 +78,7 @@ class TestCity:
         """Fixture for a sample point of interest"""
         return PointOfInterest(
             id=1,
-            pseudonym="CityHall",
+            name="CityHall",
             position=(49.025, 8.425)
         )
 
@@ -86,7 +87,7 @@ class TestCity:
         """Test creating a valid city"""
         city = City(
             id=1,
-            pseudonym="SimCity_Downtown",
+            name="SimCity_Downtown",
             min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -94,7 +95,7 @@ class TestCity:
         )
         
         assert city.id == 1
-        assert city.pseudonym == "SimCity_Downtown"
+        assert city.name == "SimCity_Downtown"
         assert city.min_latitude == 49.0
         assert city.max_latitude == 49.1
         assert city.min_longitude == 8.4
@@ -107,7 +108,7 @@ class TestCity:
         with pytest.raises(ValidationError):
             City(
                 id=1,
-                pseudonym="InvalidCity",
+                name="InvalidCity",
                 min_latitude=49.1,
                 max_latitude=49.0,  # Invalid: max < min
                 min_longitude=8.4,
@@ -117,7 +118,7 @@ class TestCity:
         with pytest.raises(ValidationError):
             City(
                 id=1,
-                pseudonym="InvalidCity",
+                name="InvalidCity",
                 min_latitude=49.0,
                 max_latitude=49.1,
                 min_longitude=8.5,
@@ -129,7 +130,7 @@ class TestCity:
         with pytest.raises(ValidationError):
             City(
                 id=1,
-                pseudonym="InvalidCity",
+                name="InvalidCity",
                 min_latitude=49.0,
                 max_latitude=49.0,  # Invalid: equal
                 min_longitude=8.4,
@@ -139,7 +140,7 @@ class TestCity:
         with pytest.raises(ValidationError):
             City(
                 id=1,
-                pseudonym="InvalidCity",
+                name="InvalidCity",
                 min_latitude=49.0,
                 max_latitude=49.1,
                 min_longitude=8.4,
@@ -150,7 +151,7 @@ class TestCity:
         """Test creating a city with all components"""
         city = City(
             id=1,
-            pseudonym="CompleteCity",
+            name="CompleteCity",
             min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -166,7 +167,7 @@ class TestCity:
         """Test adding a parking lot to the city"""
         city = City(
             id=1,
-            pseudonym="TestCity",
+            name="TestCity",
             min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -182,7 +183,7 @@ class TestCity:
         """Test that parking lot outside geographic bounds raises error"""
         city = City(
             id=1,
-            pseudonym="TestCity",
+            name="TestCity",
             min_latitude=49.0,
             max_latitude=49.01,
             min_longitude=8.4,
@@ -191,8 +192,8 @@ class TestCity:
 
         invalid_lot = ParkingZone(
             id=1,
-            pseudonym="OutOfBounds",
-            price=Decimal("2.50"),
+            name="OutOfBounds",
+            current_fee=2.50,
             position=(50.0, 10.0),  # Outside geographic bounds
             maximum_capacity=50,
             current_capacity=0
@@ -205,7 +206,7 @@ class TestCity:
         """Test that duplicate parking lot ID raises error"""
         city = City(
             id=1,
-            pseudonym="TestCity",
+            name="TestCity",
             min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -216,8 +217,8 @@ class TestCity:
         
         duplicate_lot = ParkingZone(
             id=1,  # Same ID
-            pseudonym="DuplicateLot",
-            price=Decimal("3.00"),
+            name="DuplicateLot",
+            current_fee=3.00,
             position=(49.06, 8.46),
             maximum_capacity=75,
             current_capacity=0
@@ -230,7 +231,7 @@ class TestCity:
         """Test adding a point of interest to the city"""
         city = City(
             id=1,
-            pseudonym="TestCity",
+            name="TestCity",
             min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -246,7 +247,7 @@ class TestCity:
         """Test that POI outside geographic bounds raises error"""
         city = City(
             id=1,
-            pseudonym="TestCity",
+            name="TestCity",
             min_latitude=49.0,
             max_latitude=49.01,
             min_longitude=8.4,
@@ -255,7 +256,7 @@ class TestCity:
 
         invalid_poi = PointOfInterest(
             id=1,
-            pseudonym="OutOfBounds",
+            name="OutOfBounds",
             position=(50.0, 10.0)  # Outside geographic bounds
         )
         
@@ -266,7 +267,7 @@ class TestCity:
         """Test that duplicate POI ID raises error"""
         city = City(
             id=1,
-            pseudonym="TestCity",
+            name="TestCity",
             min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -277,7 +278,7 @@ class TestCity:
         
         duplicate_poi = PointOfInterest(
             id=1,  # Same ID
-            pseudonym="DuplicatePOI",
+            name="DuplicatePOI",
             position=(49.03, 8.43)
         )
         
@@ -291,7 +292,7 @@ class TestCity:
         """Test retrieving parking lot by ID"""
         city = City(
             id=1,
-            pseudonym="TestCity",
+            name="TestCity",
             min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -303,13 +304,13 @@ class TestCity:
         
         assert result is not None
         assert result.id == 1
-        assert result.pseudonym == "CenterLot001"
+        assert result.name == "CenterLot001"
     
     def test_get_parking_zone_by_id_not_found(self):
         """Test retrieving non-existent parking lot returns None"""
         city = City(
             id=1,
-            pseudonym="TestCity",
+            name="TestCity",
             min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -324,7 +325,7 @@ class TestCity:
         """Test calculating total parking capacity"""
         city = City(
             id=1,
-            pseudonym="TestCity",
+            name="TestCity",
             min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -332,16 +333,16 @@ class TestCity:
             parking_zones=[
                 ParkingZone(
                     id=1,
-                    pseudonym="Lot1",
-                    price=Decimal("2.00"),
+                    name="Lot1",
+                    current_fee=2.00,
                     position=(49.01, 8.41),
                     maximum_capacity=100,
                     current_capacity=50
                 ),
                 ParkingZone(
                     id=2,
-                    pseudonym="Lot2",
-                    price=Decimal("3.00"),
+                    name="Lot2",
+                    current_fee=3.00,
                     position=(49.02, 8.42),
                     maximum_capacity=150,
                     current_capacity=75
@@ -355,7 +356,7 @@ class TestCity:
         """Test total parking capacity with no parking lots"""
         city = City(
             id=1,
-            pseudonym="TestCity",
+            name="TestCity",
             min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -368,7 +369,7 @@ class TestCity:
         """Test calculating total occupied spots"""
         city = City(
             id=1,
-            pseudonym="TestCity",
+            name="TestCity",
             min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -376,16 +377,16 @@ class TestCity:
             parking_zones=[
                 ParkingZone(
                     id=1,
-                    pseudonym="Lot1",
-                    price=Decimal("2.00"),
+                    name="Lot1",
+                    current_fee=2.00,
                     position=(49.01, 8.41),
                     maximum_capacity=100,
                     current_capacity=60
                 ),
                 ParkingZone(
                     id=2,
-                    pseudonym="Lot2",
-                    price=Decimal("3.00"),
+                    name="Lot2",
+                    current_fee=3.00,
                     position=(49.02, 8.42),
                     maximum_capacity=150,
                     current_capacity=90
@@ -399,7 +400,7 @@ class TestCity:
         """Test calculating total available spots"""
         city = City(
             id=1,
-            pseudonym="TestCity",
+            name="TestCity",
             min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -407,16 +408,16 @@ class TestCity:
             parking_zones=[
                 ParkingZone(
                     id=1,
-                    pseudonym="Lot1",
-                    price=Decimal("2.00"),
+                    name="Lot1",
+                    current_fee=2.00,
                     position=(49.01, 8.41),
                     maximum_capacity=100,
                     current_capacity=60
                 ),
                 ParkingZone(
                     id=2,
-                    pseudonym="Lot2",
-                    price=Decimal("3.00"),
+                    name="Lot2",
+                    current_fee=3.00,
                     position=(49.02, 8.42),
                     maximum_capacity=150,
                     current_capacity=90
@@ -431,7 +432,7 @@ class TestCity:
         """Test calculating city-wide occupancy rate"""
         city = City(
             id=1,
-            pseudonym="TestCity",
+            name="TestCity",
             min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -439,16 +440,16 @@ class TestCity:
             parking_zones=[
                 ParkingZone(
                     id=1,
-                    pseudonym="Lot1",
-                    price=Decimal("2.00"),
+                    name="Lot1",
+                    current_fee=2.00,
                     position=(49.01, 8.41),
                     maximum_capacity=100,
                     current_capacity=50
                 ),
                 ParkingZone(
                     id=2,
-                    pseudonym="Lot2",
-                    price=Decimal("3.00"),
+                    name="Lot2",
+                    current_fee=3.00,
                     position=(49.02, 8.42),
                     maximum_capacity=100,
                     current_capacity=30
@@ -463,7 +464,7 @@ class TestCity:
         """Test occupancy rate with zero capacity"""
         city = City(
             id=1,
-            pseudonym="TestCity",
+            name="TestCity",
             min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -476,7 +477,7 @@ class TestCity:
         """Test finding nearest parking lot to a position"""
         city = City(
             id=1,
-            pseudonym="TestCity",
+            name="TestCity",
             min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -484,16 +485,16 @@ class TestCity:
             parking_zones=[
                 ParkingZone(
                     id=1,
-                    pseudonym="FarLot",
-                    price=Decimal("2.00"),
+                    name="FarLot",
+                    current_fee=2.00,
                     position=(49.09, 8.49),
                     maximum_capacity=100,
                     current_capacity=0
                 ),
                 ParkingZone(
                     id=2,
-                    pseudonym="NearLot",
-                    price=Decimal("3.00"),
+                    name="NearLot",
+                    current_fee=3.00,
                     position=(49.015, 8.415),
                     maximum_capacity=100,
                     current_capacity=0
@@ -504,13 +505,13 @@ class TestCity:
         nearest = city.find_nearest_parking_zone((49.01, 8.41))
         
         assert nearest is not None
-        assert nearest.pseudonym == "NearLot"
+        assert nearest.name == "NearLot"
     
     def test_find_nearest_parking_zone_empty_city(self):
         """Test finding nearest parking lot with no lots"""
         city = City(
             id=1,
-            pseudonym="TestCity",
+            name="TestCity",
             min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -525,7 +526,7 @@ class TestCity:
         """Test finding parking lots with available spots"""
         city = City(
             id=1,
-            pseudonym="TestCity",
+            name="TestCity",
             min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -533,24 +534,24 @@ class TestCity:
             parking_zones=[
                 ParkingZone(
                     id=1,
-                    pseudonym="FullLot",
-                    price=Decimal("2.00"),
+                    name="FullLot",
+                    current_fee=2.00,
                     position=(49.01, 8.41),
                     maximum_capacity=100,
                     current_capacity=100  # Full
                 ),
                 ParkingZone(
                     id=2,
-                    pseudonym="AvailableLot1",
-                    price=Decimal("3.00"),
+                    name="AvailableLot1",
+                    current_fee=3.00,
                     position=(49.02, 8.42),
                     maximum_capacity=100,
                     current_capacity=50  # Available
                 ),
                 ParkingZone(
                     id=3,
-                    pseudonym="AvailableLot2",
-                    price=Decimal("2.50"),
+                    name="AvailableLot2",
+                    current_fee=2.50,
                     position=(49.03, 8.43),
                     maximum_capacity=100,
                     current_capacity=0  # Available
@@ -561,16 +562,16 @@ class TestCity:
         available_lots = city.find_available_parking_zones()
         
         assert len(available_lots) == 2
-        pseudonyms = [lot.pseudonym for lot in available_lots]
-        assert "AvailableLot1" in pseudonyms
-        assert "AvailableLot2" in pseudonyms
-        assert "FullLot" not in pseudonyms
+        names = [lot.name for lot in available_lots]
+        assert "AvailableLot1" in names
+        assert "AvailableLot2" in names
+        assert "FullLot" not in names
     
     def test_find_available_parking_zones_all_full(self):
         """Test finding available lots when all are full"""
         city = City(
             id=1,
-            pseudonym="TestCity",
+            name="TestCity",
             min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -578,16 +579,16 @@ class TestCity:
             parking_zones=[
                 ParkingZone(
                     id=1,
-                    pseudonym="FullLot1",
-                    price=Decimal("2.00"),
+                    name="FullLot1",
+                    current_fee=2.00,
                     position=(49.01, 8.41),
                     maximum_capacity=100,
                     current_capacity=100
                 ),
                 ParkingZone(
                     id=2,
-                    pseudonym="FullLot2",
-                    price=Decimal("3.00"),
+                    name="FullLot2",
+                    current_fee=3.00,
                     position=(49.02, 8.42),
                     maximum_capacity=50,
                     current_capacity=50
@@ -606,7 +607,7 @@ class TestCity:
         with pytest.raises(ValidationError, match="outside city bounds"):
             City(
                 id=1,
-                pseudonym="InvalidCity",
+                name="InvalidCity",
                 min_latitude=49.0,
             max_latitude=49.01,
             min_longitude=8.4,
@@ -614,8 +615,8 @@ class TestCity:
                 parking_zones=[
                     ParkingZone(
                         id=1,
-                        pseudonym="OutOfBoundsLot",
-                        price=Decimal("2.00"),
+                        name="OutOfBoundsLot",
+                        current_fee=2.00,
                         position=(50.0, 10.0),  # Outside geographic bounds
                         maximum_capacity=50,
                         current_capacity=0
@@ -628,7 +629,7 @@ class TestCity:
         with pytest.raises(ValidationError, match="outside city bounds"):
             City(
                 id=1,
-                pseudonym="InvalidCity",
+                name="InvalidCity",
                 min_latitude=49.0,
             max_latitude=49.01,
             min_longitude=8.4,
@@ -636,18 +637,18 @@ class TestCity:
                 point_of_interests=[
                     PointOfInterest(
                         id=1,
-                        pseudonym="OutOfBoundsPOI",
+                        name="OutOfBoundsPOI",
                         position=(50.0, 10.0)  # Outside geographic bounds
                     )
                 ]
             )
     
-    def test_city_pseudonym_validation(self):
-        """Test that city pseudonym cannot be empty"""
+    def test_city_name_validation(self):
+        """Test that city name cannot be empty"""
         with pytest.raises(ValidationError):
             City(
                 id=1,
-                pseudonym="",
+                name="",
                 min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -658,7 +659,7 @@ class TestCity:
         """Test a complex city with multiple components"""
         city = City(
             id=1,
-            pseudonym="ComplexCity",
+            name="ComplexCity",
             min_latitude=49.0,
             max_latitude=49.1,
             min_longitude=8.4,
@@ -670,8 +671,8 @@ class TestCity:
             city.add_parking_zone(
                 ParkingZone(
                     id=i+1,
-                    pseudonym=f"Lot{i+1}",
-                    price=Decimal("2.00") + Decimal(str(i * 0.5)),
+                    name=f"Lot{i+1}",
+                    current_fee=2.00 + (i * 0.5),
                     position=(49.01 + i*0.01, 8.41 + i*0.01),
                     maximum_capacity=100,
                     current_capacity=i * 20
@@ -683,7 +684,7 @@ class TestCity:
             city.add_point_of_interest(
                 PointOfInterest(
                     id=i+1,
-                    pseudonym=f"POI{i+1}",
+                    name=f"POI{i+1}",
                     position=(49.05 + i*0.01, 8.45 + i*0.01)
                 )
             )
@@ -705,8 +706,8 @@ class TestParkingZone:
         """Fixture for a sample parking lot"""
         return ParkingZone(
             id=1,
-            pseudonym="CenterLot001",
-            price=Decimal("2.50"),
+            name="CenterLot001",
+            current_fee=2.50,
             position=(52.5170, 13.4003),
             maximum_capacity=100,
             current_capacity=50
@@ -716,77 +717,77 @@ class TestParkingZone:
         """Test creating a valid parking lot"""
         lot = ParkingZone(
             id=1,
-            pseudonym="TestLot",
-            price=Decimal("3.00"),
+            name="TestLot",
+            current_fee=3.00,
             position=(50.0, 10.0),
             maximum_capacity=150,
             current_capacity=75
         )
         
         assert lot.id == 1
-        assert lot.pseudonym == "TestLot"
-        assert lot.price == Decimal("3.00")
+        assert lot.name == "TestLot"
+        assert lot.current_fee == 3.00
         assert lot.position == (50.0, 10.0)
         assert lot.maximum_capacity == 150
         assert lot.current_capacity == 75
     
-    def test_create_parking_zone_with_string_price(self):
-        """Test creating parking lot with string price (auto-conversion)"""
+    def test_create_parking_zone_with_string_current_fee(self):
+        """Test creating parking lot with string current_fee (auto-conversion)"""
         lot = ParkingZone(
             id=2,
-            pseudonym="TestLot2",
-            price="4.75",
+            name="TestLot2",
+            current_fee="4.75",
             position=(0.0, 0.0),
             maximum_capacity=100,
             current_capacity=25
         )
         
-        assert lot.price == Decimal("4.75")
+        assert lot.current_fee == 4.75
     
-    def test_parking_zone_pseudonym_validation(self):
-        """Test that pseudonym cannot be empty"""
+    def test_parking_zone_name_validation(self):
+        """Test that name cannot be empty"""
         with pytest.raises(ValidationError):
             ParkingZone(
                 id=1,
-                pseudonym="",
-                price=Decimal("2.50"),
+                name="",
+                current_fee=2.50,
                 position=(0.0, 0.0),
                 maximum_capacity=100,
                 current_capacity=0
             )
     
-    def test_price_validation_negative(self):
-        """Test that price cannot be negative"""
+    def test_current_fee_validation_negative(self):
+        """Test that current_fee cannot be negative"""
         with pytest.raises(ValidationError):
             ParkingZone(
                 id=1,
-                pseudonym="TestLot",
-                price=Decimal("-1.00"),
+                name="TestLot",
+                current_fee=-1.00,
                 position=(0.0, 0.0),
                 maximum_capacity=100,
                 current_capacity=0
             )
     
-    def test_price_validation_zero(self):
-        """Test that price can be zero (free parking)"""
+    def test_current_fee_validation_zero(self):
+        """Test that current_fee can be zero (free parking)"""
         lot = ParkingZone(
             id=1,
-            pseudonym="FreeLot",
-            price=Decimal("0.00"),
+            name="FreeLot",
+            current_fee=0.00,
             position=(0.0, 0.0),
             maximum_capacity=50,
             current_capacity=10
         )
         
-        assert lot.price == Decimal("0.00")
+        assert lot.current_fee == 0.00
     
     def test_maximum_capacity_validation_positive(self):
         """Test that maximum_capacity must be positive"""
         with pytest.raises(ValidationError):
             ParkingZone(
                 id=1,
-                pseudonym="TestLot",
-                price=Decimal("2.50"),
+                name="TestLot",
+                current_fee=2.50,
                 position=(0.0, 0.0),
                 maximum_capacity=0,
                 current_capacity=0
@@ -795,8 +796,8 @@ class TestParkingZone:
         with pytest.raises(ValidationError):
             ParkingZone(
                 id=1,
-                pseudonym="TestLot",
-                price=Decimal("2.50"),
+                name="TestLot",
+                current_fee=2.50,
                 position=(0.0, 0.0),
                 maximum_capacity=-10,
                 current_capacity=0
@@ -807,8 +808,8 @@ class TestParkingZone:
         with pytest.raises(ValidationError):
             ParkingZone(
                 id=1,
-                pseudonym="TestLot",
-                price=Decimal("2.50"),
+                name="TestLot",
+                current_fee=2.50,
                 position=(0.0, 0.0),
                 maximum_capacity=100,
                 current_capacity=-5
@@ -819,8 +820,8 @@ class TestParkingZone:
         with pytest.raises(ValueError, match="cannot exceed maximum capacity"):
             ParkingZone(
                 id=1,
-                pseudonym="TestLot",
-                price=Decimal("2.50"),
+                name="TestLot",
+                current_fee=2.50,
                 position=(0.0, 0.0),
                 maximum_capacity=100,
                 current_capacity=150
@@ -830,8 +831,8 @@ class TestParkingZone:
         """Test that current_capacity can equal maximum_capacity (full lot)"""
         lot = ParkingZone(
             id=1,
-            pseudonym="FullLot",
-            price=Decimal("3.00"),
+            name="FullLot",
+            current_fee=3.00,
             position=(0.0, 0.0),
             maximum_capacity=100,
             current_capacity=100
@@ -844,8 +845,8 @@ class TestParkingZone:
         """Test available spots calculation"""
         lot = ParkingZone(
             id=1,
-            pseudonym="TestLot",
-            price=Decimal("2.50"),
+            name="TestLot",
+            current_fee=2.50,
             position=(0.0, 0.0),
             maximum_capacity=100,
             current_capacity=60
@@ -857,8 +858,8 @@ class TestParkingZone:
         """Test available spots for empty lot"""
         lot = ParkingZone(
             id=1,
-            pseudonym="EmptyLot",
-            price=Decimal("2.50"),
+            name="EmptyLot",
+            current_fee=2.50,
             position=(0.0, 0.0),
             maximum_capacity=100,
             current_capacity=0
@@ -870,8 +871,8 @@ class TestParkingZone:
         """Test available spots for full lot"""
         lot = ParkingZone(
             id=1,
-            pseudonym="FullLot",
-            price=Decimal("2.50"),
+            name="FullLot",
+            current_fee=2.50,
             position=(0.0, 0.0),
             maximum_capacity=100,
             current_capacity=100
@@ -883,8 +884,8 @@ class TestParkingZone:
         """Test occupancy rate calculation"""
         lot = ParkingZone(
             id=1,
-            pseudonym="TestLot",
-            price=Decimal("2.50"),
+            name="TestLot",
+            current_fee=2.50,
             position=(0.0, 0.0),
             maximum_capacity=100,
             current_capacity=50
@@ -896,8 +897,8 @@ class TestParkingZone:
         """Test occupancy rate for empty lot"""
         lot = ParkingZone(
             id=1,
-            pseudonym="EmptyLot",
-            price=Decimal("2.50"),
+            name="EmptyLot",
+            current_fee=2.50,
             position=(0.0, 0.0),
             maximum_capacity=100,
             current_capacity=0
@@ -909,8 +910,8 @@ class TestParkingZone:
         """Test occupancy rate for full lot"""
         lot = ParkingZone(
             id=1,
-            pseudonym="FullLot",
-            price=Decimal("2.50"),
+            name="FullLot",
+            current_fee=2.50,
             position=(0.0, 0.0),
             maximum_capacity=100,
             current_capacity=100
@@ -922,8 +923,8 @@ class TestParkingZone:
         """Test occupancy rate for partially filled lot"""
         lot = ParkingZone(
             id=1,
-            pseudonym="PartialLot",
-            price=Decimal("2.50"),
+            name="PartialLot",
+            current_fee=2.50,
             position=(0.0, 0.0),
             maximum_capacity=200,
             current_capacity=75
@@ -935,8 +936,8 @@ class TestParkingZone:
         """Test is_full returns True when lot is full"""
         lot = ParkingZone(
             id=1,
-            pseudonym="FullLot",
-            price=Decimal("2.50"),
+            name="FullLot",
+            current_fee=2.50,
             position=(0.0, 0.0),
             maximum_capacity=50,
             current_capacity=50
@@ -948,8 +949,8 @@ class TestParkingZone:
         """Test is_full returns False when lot has space"""
         lot = ParkingZone(
             id=1,
-            pseudonym="PartialLot",
-            price=Decimal("2.50"),
+            name="PartialLot",
+            current_fee=2.50,
             position=(0.0, 0.0),
             maximum_capacity=50,
             current_capacity=30
@@ -961,8 +962,8 @@ class TestParkingZone:
         """Test is_full returns False for empty lot"""
         lot = ParkingZone(
             id=1,
-            pseudonym="EmptyLot",
-            price=Decimal("2.50"),
+            name="EmptyLot",
+            current_fee=2.50,
             position=(0.0, 0.0),
             maximum_capacity=50,
             current_capacity=0
@@ -974,8 +975,8 @@ class TestParkingZone:
         """Test can_accommodate for single spot"""
         lot = ParkingZone(
             id=1,
-            pseudonym="TestLot",
-            price=Decimal("2.50"),
+            name="TestLot",
+            current_fee=2.50,
             position=(0.0, 0.0),
             maximum_capacity=100,
             current_capacity=99
@@ -988,8 +989,8 @@ class TestParkingZone:
         """Test can_accommodate for multiple spots"""
         lot = ParkingZone(
             id=1,
-            pseudonym="TestLot",
-            price=Decimal("2.50"),
+            name="TestLot",
+            current_fee=2.50,
             position=(0.0, 0.0),
             maximum_capacity=100,
             current_capacity=90
@@ -1003,8 +1004,8 @@ class TestParkingZone:
         """Test can_accommodate with default parameter (1 spot)"""
         lot = ParkingZone(
             id=1,
-            pseudonym="TestLot",
-            price=Decimal("2.50"),
+            name="TestLot",
+            current_fee=2.50,
             position=(0.0, 0.0),
             maximum_capacity=100,
             current_capacity=99
@@ -1016,8 +1017,8 @@ class TestParkingZone:
         """Test can_accommodate for full lot"""
         lot = ParkingZone(
             id=1,
-            pseudonym="FullLot",
-            price=Decimal("2.50"),
+            name="FullLot",
+            current_fee=2.50,
             position=(0.0, 0.0),
             maximum_capacity=100,
             current_capacity=100
@@ -1030,8 +1031,8 @@ class TestParkingZone:
         """Test distance calculation to a point"""
         lot = ParkingZone(
             id=1,
-            pseudonym="TestLot",
-            price=Decimal("2.50"),
+            name="TestLot",
+            current_fee=2.50,
             position=(0.0, 0.0),
             maximum_capacity=100,
             current_capacity=50
@@ -1045,8 +1046,8 @@ class TestParkingZone:
         """Test distance to the same position is zero"""
         lot = ParkingZone(
             id=1,
-            pseudonym="TestLot",
-            price=Decimal("2.50"),
+            name="TestLot",
+            current_fee=2.50,
             position=(10.0, 20.0),
             maximum_capacity=100,
             current_capacity=50
@@ -1059,8 +1060,8 @@ class TestParkingZone:
         """Test distance with negative coordinates"""
         lot = ParkingZone(
             id=1,
-            pseudonym="TestLot",
-            price=Decimal("2.50"),
+            name="TestLot",
+            current_fee=2.50,
             position=(-3.0, -4.0),
             maximum_capacity=100,
             current_capacity=50
@@ -1073,8 +1074,8 @@ class TestParkingZone:
     def test_parking_zone_with_fixture(self, sample_parking_zone):
         """Test using the sample parking lot fixture"""
         assert sample_parking_zone.id == 1
-        assert sample_parking_zone.pseudonym == "CenterLot001"
-        assert sample_parking_zone.price == Decimal("2.50")
+        assert sample_parking_zone.name == "CenterLot001"
+        assert sample_parking_zone.current_fee == 2.50
         assert sample_parking_zone.maximum_capacity == 100
         assert sample_parking_zone.current_capacity == 50
     
@@ -1100,8 +1101,8 @@ class TestParkingZone:
         """Test that position is properly stored as tuple"""
         lot = ParkingZone(
             id=1,
-            pseudonym="TestLot",
-            price=Decimal("2.50"),
+            name="TestLot",
+            current_fee=2.50,
             position=(52.123, 13.456),
             maximum_capacity=100,
             current_capacity=50
@@ -1110,25 +1111,25 @@ class TestParkingZone:
         assert isinstance(lot.position, tuple)
         assert len(lot.position) == 2
     
-    def test_parking_zone_price_precision(self):
-        """Test decimal precision for parking price"""
+    def test_parking_zone_current_fee_precision(self):
+        """Test decimal precision for parking current_fee"""
         lot = ParkingZone(
             id=1,
-            pseudonym="PreciseLot",
-            price=Decimal("3.75"),
+            name="PreciseLot",
+            current_fee=3.75,
             position=(0.0, 0.0),
             maximum_capacity=100,
             current_capacity=50
         )
         
-        assert lot.price == Decimal("3.75")
+        assert lot.current_fee == 3.75
     
     def test_multiple_parking_zones_different_ids(self):
         """Test creating multiple parking lots with different IDs"""
         lot1 = ParkingZone(
             id=1,
-            pseudonym="Lot1",
-            price=Decimal("2.00"),
+            name="Lot1",
+            current_fee=2.00,
             position=(0.0, 0.0),
             maximum_capacity=100,
             current_capacity=50
@@ -1136,28 +1137,28 @@ class TestParkingZone:
         
         lot2 = ParkingZone(
             id=2,
-            pseudonym="Lot2",
-            price=Decimal("3.00"),
+            name="Lot2",
+            current_fee=3.00,
             position=(10.0, 10.0),
             maximum_capacity=150,
             current_capacity=75
         )
         
         assert lot1.id != lot2.id
-        assert lot1.pseudonym != lot2.pseudonym
+        assert lot1.name != lot2.name
     
     def test_parking_zone_realistic_scenario_cheap(self):
         """Test a realistic budget parking lot scenario"""
         lot = ParkingZone(
             id=1,
-            pseudonym="BudgetParking_Downtown",
-            price=Decimal("1.50"),
+            name="BudgetParking_Downtown",
+            current_fee=1.50,
             position=(52.5200, 13.4050),
             maximum_capacity=200,
             current_capacity=150
         )
         
-        assert lot.pseudonym == "BudgetParking_Downtown"
+        assert lot.name == "BudgetParking_Downtown"
         assert lot.available_spots() == 50
         assert lot.occupancy_rate() == 0.75
         assert lot.can_accommodate(25) is True
@@ -1167,25 +1168,25 @@ class TestParkingZone:
         """Test a realistic premium parking lot scenario"""
         lot = ParkingZone(
             id=2,
-            pseudonym="PremiumParking_Center",
-            price=Decimal("8.00"),
+            name="PremiumParking_Center",
+            current_fee=8.00,
             position=(52.5100, 13.3900),
             maximum_capacity=50,
             current_capacity=48
         )
         
-        assert lot.price == Decimal("8.00")
+        assert lot.current_fee == 8.00
         assert lot.available_spots() == 2
         assert lot.occupancy_rate() == 0.96
         assert lot.can_accommodate(2) is True
         assert lot.can_accommodate(3) is False
     
-    def test_parking_zone_comparison_different_prices(self):
-        """Test comparing parking lots with different prices"""
+    def test_parking_zone_comparison_different_current_fees(self):
+        """Test comparing parking lots with different current_fees"""
         cheap_lot = ParkingZone(
             id=1,
-            pseudonym="CheapLot",
-            price=Decimal("1.00"),
+            name="CheapLot",
+            current_fee=1.00,
             position=(0.0, 0.0),
             maximum_capacity=100,
             current_capacity=50
@@ -1193,22 +1194,22 @@ class TestParkingZone:
         
         expensive_lot = ParkingZone(
             id=2,
-            pseudonym="ExpensiveLot",
-            price=Decimal("10.00"),
+            name="ExpensiveLot",
+            current_fee=10.00,
             position=(1.0, 1.0),
             maximum_capacity=100,
             current_capacity=50
         )
         
-        assert cheap_lot.price < expensive_lot.price
+        assert cheap_lot.current_fee < expensive_lot.current_fee
         assert cheap_lot.available_spots() == expensive_lot.available_spots()
     
     def test_parking_zone_edge_case_single_spot(self):
         """Test parking lot with single spot capacity"""
         lot = ParkingZone(
             id=1,
-            pseudonym="SingleSpotLot",
-            price=Decimal("5.00"),
+            name="SingleSpotLot",
+            current_fee=5.00,
             position=(0.0, 0.0),
             maximum_capacity=1,
             current_capacity=0
@@ -1223,8 +1224,8 @@ class TestParkingZone:
         """Test parking lot with very large capacity"""
         lot = ParkingZone(
             id=1,
-            pseudonym="MegaLot",
-            price=Decimal("2.00"),
+            name="MegaLot",
+            current_fee=2.00,
             position=(0.0, 0.0),
             maximum_capacity=1000,
             current_capacity=250
@@ -1239,8 +1240,8 @@ class TestParkingZone:
         """Test that the example in model_config is valid"""
         example_data = {
             "id": 1,
-            "pseudonym": "CenterLot001",
-            "price": "2.50",
+            "name": "CenterLot001",
+            "current_fee": "2.50",
             "position": [52.5170, 13.4003],
             "maximum_capacity": 150,
             "current_capacity": 10
@@ -1249,8 +1250,8 @@ class TestParkingZone:
         lot = ParkingZone(**example_data)
         
         assert lot.id == 1
-        assert lot.pseudonym == "CenterLot001"
-        assert lot.price == Decimal("2.50")
+        assert lot.name == "CenterLot001"
+        assert lot.current_fee == 2.50
         assert lot.maximum_capacity == 150
         assert lot.current_capacity == 10
     
@@ -1267,8 +1268,8 @@ class TestParkingZone:
         """Test can_accommodate with zero spots requested"""
         lot = ParkingZone(
             id=1,
-            pseudonym="TestLot",
-            price=Decimal("2.50"),
+            name="TestLot",
+            current_fee=2.50,
             position=(0.0, 0.0),
             maximum_capacity=100,
             current_capacity=100

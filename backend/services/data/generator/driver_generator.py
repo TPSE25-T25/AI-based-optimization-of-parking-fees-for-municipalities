@@ -4,7 +4,6 @@ Driver generation utilities for simulation testing.
 
 import random
 from typing import List, Tuple
-from decimal import Decimal
 
 from backend.models.driver import Driver
 from backend.models.city import City, PointOfInterest
@@ -29,7 +28,7 @@ class DriverGenerator:
         self,
         count: int,
         city: City,
-        price_range: Tuple[Decimal, Decimal] = (Decimal('2.0'), Decimal('10.0')),
+        current_fee_range: Tuple[float, float] = (2.0, 10.0),
         parking_duration_range: Tuple[int, int] = (30, 240)
     ) -> List[Driver]:
         """
@@ -38,7 +37,7 @@ class DriverGenerator:
         Args:
             count: Number of drivers to generate
             city: City model containing POIs and geographic bounds
-            price_range: (min, max) price drivers are willing to pay per hour
+            current_fee_range: (min, max) current_fee drivers are willing to pay per hour
             parking_duration_range: (min, max) parking duration in minutes
 
         Returns:
@@ -57,16 +56,16 @@ class DriverGenerator:
             # Random destination from POIs
             destination_poi = random.choice(city.point_of_interests)
             
-            # Random price tolerance
-            max_price = Decimal(str(random.uniform(float(price_range[0]), float(price_range[1]))))
+            # Random current_fee tolerance
+            max_current_fee = random.uniform(current_fee_range[0], current_fee_range[1])
             
             # Random parking duration
             duration = random.randint(parking_duration_range[0], parking_duration_range[1])
             
             driver = Driver(
                 id=i + 1,
-                pseudonym=f"Driver_{i+1:04d}",
-                max_parking_price=max_price,
+                name=f"Driver_{i+1:04d}",
+                max_parking_current_fee=max_current_fee,
                 starting_position=(start_lat, start_lon),
                 destination=destination_poi.position,
                 desired_parking_time=duration
@@ -82,7 +81,7 @@ class DriverGenerator:
         city: City,
         cluster_centers: List[PointOfInterest],
         cluster_radius_deg: float = 0.01,
-        price_range: Tuple[Decimal, Decimal] = (Decimal('2.0'), Decimal('10.0')),
+        current_fee_range: Tuple[float, float] = (2.0, 10.0),
         parking_duration_range: Tuple[int, int] = (30, 240)
     ) -> List[Driver]:
         """
@@ -93,7 +92,7 @@ class DriverGenerator:
             city: City model
             cluster_centers: Points around which to cluster driver starting positions
             cluster_radius_deg: Maximum distance from cluster center in degrees (~0.01 deg ≈ 1km)
-            price_range: (min, max) price drivers are willing to pay per hour
+            current_fee_range: (min, max) current_fee drivers are willing to pay per hour
             parking_duration_range: (min, max) parking duration in minutes
 
         Returns:
@@ -124,16 +123,16 @@ class DriverGenerator:
             # Random destination from POIs (excluding starting cluster)
             destination_poi = random.choice(city.point_of_interests)
             
-            # Random price tolerance
-            max_price = Decimal(str(random.uniform(float(price_range[0]), float(price_range[1]))))
+            # Random current_fee tolerance
+            max_current_fee = random.uniform(current_fee_range[0], current_fee_range[1])
             
             # Random parking duration
             duration = random.randint(parking_duration_range[0], parking_duration_range[1])
             
             driver = Driver(
                 id=i + 1,
-                pseudonym=f"ClusteredDriver_{i+1:04d}",
-                max_parking_price=max_price,
+                name=f"ClusteredDriver_{i+1:04d}",
+                max_parking_current_fee=max_current_fee,
                 starting_position=(start_lat, start_lon),
                 destination=destination_poi.position,
                 desired_parking_time=duration
@@ -148,7 +147,7 @@ class DriverGenerator:
         count: int,
         city: City,
         peak_destination: PointOfInterest,
-        price_range: Tuple[Decimal, Decimal] = (Decimal('3.0'), Decimal('15.0')),
+        current_fee_range: Tuple[float, float] = (3.0, 15.0),
         parking_duration_range: Tuple[int, int] = (180, 480)
     ) -> List[Driver]:
         """
@@ -158,7 +157,7 @@ class DriverGenerator:
             count: Number of drivers to generate
             city: City model
             peak_destination: Primary destination (e.g., downtown, office district)
-            price_range: (min, max) price drivers are willing to pay per hour
+            current_fee_range: (min, max) current_fee drivers are willing to pay per hour
             parking_duration_range: (min, max) parking duration in minutes
         
         Returns:
@@ -181,15 +180,15 @@ class DriverGenerator:
                     destination = peak_destination.position
             
             # Rush hour drivers might pay more
-            max_price = Decimal(str(random.uniform(float(price_range[0]), float(price_range[1]))))
+            max_current_fee = random.uniform(current_fee_range[0], current_fee_range[1])
             
             # Longer parking during work hours
             duration = random.randint(parking_duration_range[0], parking_duration_range[1])
             
             driver = Driver(
                 id=i + 1,
-                pseudonym=f"RushHourDriver_{i+1:04d}",
-                max_parking_price=max_price,
+                name=f"RushHourDriver_{i+1:04d}",
+                max_parking_current_fee=max_current_fee,
                 starting_position=(start_lat, start_lon),
                 destination=destination,
                 desired_parking_time=duration
@@ -199,20 +198,20 @@ class DriverGenerator:
         
         return drivers
     
-    def generate_price_sensitive_drivers(
+    def generate_current_fee_sensitive_drivers(
         self,
         count: int,
         city: City,
-        low_price_threshold: Decimal = Decimal('3.0'),
+        low_current_fee_threshold: float = 3.0,
         parking_duration_range: Tuple[int, int] = (30, 120)
     ) -> List[Driver]:
         """
-        Generate price-sensitive drivers with low price tolerance.
+        Generate current_fee-sensitive drivers with low current_fee tolerance.
         
         Args:
             count: Number of drivers to generate
             city: City model
-            low_price_threshold: Maximum price these drivers will pay
+            low_current_fee_threshold: Maximum current_fee these drivers will pay
             parking_duration_range: (min, max) parking duration in minutes
         
         Returns:
@@ -230,15 +229,15 @@ class DriverGenerator:
 
             destination_poi = random.choice(city.point_of_interests)
             
-            # Low price tolerance
-            max_price = Decimal(str(random.uniform(float(Decimal('1.0')), float(low_price_threshold))))
+            # Low current_fee tolerance
+            max_current_fee = random.uniform(1.0, low_current_fee_threshold)
             
             duration = random.randint(parking_duration_range[0], parking_duration_range[1])
             
             driver = Driver(
                 id=i + 1,
-                pseudonym=f"BudgetDriver_{i+1:04d}",
-                max_parking_price=max_price,
+                name=f"BudgetDriver_{i+1:04d}",
+                max_parking_current_fee=max_current_fee,
                 starting_position=(start_lat, start_lon),
                 destination=destination_poi.position,
                 desired_parking_time=duration

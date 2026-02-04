@@ -5,12 +5,11 @@ Tests the multi-objective optimization engine for parking pricing.
 
 import pytest
 import numpy as np
-from decimal import Decimal
 from backend.services.optimizer.nsga3_optimizer_elasticity import NSGA3OptimizerElasticity
-from backend.schemas.optimization_schema import (
+from backend.models.city import ParkingZone
+from backend.services.optimizer.schemas.optimization_schema import (
     OptimizationRequest,
     OptimizationSettings,
-    ParkingZoneInput,
     OptimizationResponse,
     PricingScenario
 )
@@ -20,10 +19,10 @@ from backend.schemas.optimization_schema import (
 def sample_zones():
     """Create sample parking zones for testing."""
     return [
-        ParkingZoneInput(
+        ParkingZone(
             id=1,
-            pseudonym="Zone_A",
-            price=Decimal("3.0"),
+            name="Zone_A",
+            current_fee=3.0,
             position=(49.01, 8.41),
             maximum_capacity=100,
             current_capacity=60,
@@ -32,10 +31,10 @@ def sample_zones():
             elasticity=-0.5,
             short_term_share=0.6
         ),
-        ParkingZoneInput(
+        ParkingZone(
             id=2,
-            pseudonym="Zone_B",
-            price=Decimal("4.0"),
+            name="Zone_B",
+            current_fee=4.0,
             position=(49.02, 8.42),
             maximum_capacity=150,
             current_capacity=120,
@@ -44,10 +43,10 @@ def sample_zones():
             elasticity=-0.4,
             short_term_share=0.7
         ),
-        ParkingZoneInput(
+        ParkingZone(
             id=3,
-            pseudonym="Zone_C",
-            price=Decimal("2.5"),
+            name="Zone_C",
+            current_fee=2.5,
             position=(49.03, 8.43),
             maximum_capacity=80,
             current_capacity=30,
@@ -93,7 +92,7 @@ class TestNSGA3OptimizerDataConversion:
 
         # Check all expected keys are present
         expected_keys = {
-            "current_prices", "min_fees", "max_fees", "capacities",
+            "current_current_fees", "min_fees", "max_fees", "capacities",
             "elasticities", "current_occupancy", "short_term_share", "target_occupancy"
         }
         assert set(data.keys()) == expected_keys
@@ -103,7 +102,7 @@ class TestNSGA3OptimizerDataConversion:
         data = optimizer._convert_request_to_numpy(optimization_request)
 
         # Check that all arrays are numpy arrays
-        for key in ["current_prices", "min_fees", "max_fees", "capacities",
+        for key in ["current_current_fees", "min_fees", "max_fees", "capacities",
                     "elasticities", "current_occupancy", "short_term_share"]:
             assert isinstance(data[key], np.ndarray)
 
@@ -113,7 +112,7 @@ class TestNSGA3OptimizerDataConversion:
         n_zones = len(optimization_request.zones)
 
         # Check array dimensions
-        for key in ["current_prices", "min_fees", "max_fees", "capacities",
+        for key in ["current_current_fees", "min_fees", "max_fees", "capacities",
                     "elasticities", "current_occupancy", "short_term_share"]:
             assert data[key].shape == (n_zones,)
 
@@ -123,7 +122,7 @@ class TestNSGA3OptimizerDataConversion:
         zones = optimization_request.zones
 
         # Check specific values
-        assert data["current_prices"][0] == float(zones[0].price)
+        assert data["current_current_fees"][0] == float(zones[0].current_fee)
         assert data["min_fees"][1] == zones[1].min_fee
         assert data["max_fees"][2] == zones[2].max_fee
         assert data["capacities"][0] == zones[0].maximum_capacity
@@ -144,10 +143,10 @@ class TestNSGA3OptimizerDataConversion:
 
     def test_convert_request_very_small_capacity_handling(self, optimizer):
         """Test handling of zones with very small capacity."""
-        zone_small_capacity = ParkingZoneInput(
+        zone_small_capacity = ParkingZone(
             id=99,
-            pseudonym="SmallZone",
-            price=Decimal("3.0"),
+            name="SmallZone",
+            current_fee=3.0,
             position=(49.0, 8.4),
             maximum_capacity=1,  # Minimum valid capacity
             current_capacity=0,
@@ -172,9 +171,9 @@ class TestNSGA3OptimizerPhysicsCalculation:
     def test_calculate_physics_returns_correct_structure(self, optimizer, optimization_request):
         """Test that physics calculation returns expected structure."""
         data = optimizer._convert_request_to_numpy(optimization_request)
-        prices = data["current_prices"]
+        current_fees = data["current_current_fees"]
 
-        results = optimizer._calculate_physics(prices, data)
+        results = optimizer._calculate_physics(current_fees, data)
 
         # Check structure
         assert "objectives" in results
@@ -188,95 +187,95 @@ class TestNSGA3OptimizerPhysicsCalculation:
     def test_calculate_physics_array_shapes(self, optimizer, optimization_request):
         """Test that output arrays have correct shapes."""
         data = optimizer._convert_request_to_numpy(optimization_request)
-        prices = data["current_prices"]
+        current_fees = data["current_current_fees"]
         n_zones = len(optimization_request.zones)
 
-        results = optimizer._calculate_physics(prices, data)
+        results = optimizer._calculate_physics(current_fees, data)
 
         # Check array shapes
         assert results["occupancy"].shape == (n_zones,)
         assert results["revenue"].shape == (n_zones,)
         assert results["demand_change"].shape == (n_zones,)
 
-    def test_calculate_physics_price_increase_reduces_demand(self, optimizer, optimization_request):
-        """Test that price increases reduce occupancy (negative elasticity)."""
+    def test_calculate_physics_current_fee_increase_reduces_demand(self, optimizer, optimization_request):
+        """Test that current_fee increases reduce occupancy (negative elasticity)."""
         data = optimizer._convert_request_to_numpy(optimization_request)
 
-        # Calculate with current prices
-        results_current = optimizer._calculate_physics(data["current_prices"], data)
+        # Calculate with current current_fees
+        results_current = optimizer._calculate_physics(data["current_current_fees"], data)
 
-        # Calculate with doubled prices
-        increased_prices = data["current_prices"] * 2.0
-        results_increased = optimizer._calculate_physics(increased_prices, data)
+        # Calculate with doubled current_fees
+        increased_current_fees = data["current_current_fees"] * 2.0
+        results_increased = optimizer._calculate_physics(increased_current_fees, data)
 
-        # With negative elasticity, higher prices should reduce occupancy
+        # With negative elasticity, higher current_fees should reduce occupancy
         assert np.all(results_increased["occupancy"] <= results_current["occupancy"])
 
-    def test_calculate_physics_price_decrease_increases_demand(self, optimizer, optimization_request):
-        """Test that price decreases increase occupancy."""
+    def test_calculate_physics_current_fee_decrease_increases_demand(self, optimizer, optimization_request):
+        """Test that current_fee decreases increase occupancy."""
         data = optimizer._convert_request_to_numpy(optimization_request)
 
-        # Calculate with current prices
-        results_current = optimizer._calculate_physics(data["current_prices"], data)
+        # Calculate with current current_fees
+        results_current = optimizer._calculate_physics(data["current_current_fees"], data)
 
-        # Calculate with halved prices
-        decreased_prices = data["current_prices"] * 0.5
-        results_decreased = optimizer._calculate_physics(decreased_prices, data)
+        # Calculate with halved current_fees
+        decreased_current_fees = data["current_current_fees"] * 0.5
+        results_decreased = optimizer._calculate_physics(decreased_current_fees, data)
 
-        # Lower prices should increase occupancy
+        # Lower current_fees should increase occupancy
         assert np.all(results_decreased["occupancy"] >= results_current["occupancy"])
 
     def test_calculate_physics_occupancy_constraints(self, optimizer, optimization_request):
         """Test that occupancy is constrained to valid range."""
         data = optimizer._convert_request_to_numpy(optimization_request)
 
-        # Test with very low prices (should cap at 1.0)
-        low_prices = data["min_fees"] * 0.1
-        results_low = optimizer._calculate_physics(low_prices, data)
+        # Test with very low current_fees (should cap at 1.0)
+        low_current_fees = data["min_fees"] * 0.1
+        results_low = optimizer._calculate_physics(low_current_fees, data)
         assert np.all(results_low["occupancy"] >= 0.05)
         assert np.all(results_low["occupancy"] <= 1.0)
 
-        # Test with very high prices (should stay above 0.05)
-        high_prices = data["max_fees"] * 10.0
-        results_high = optimizer._calculate_physics(high_prices, data)
+        # Test with very high current_fees (should stay above 0.05)
+        high_current_fees = data["max_fees"] * 10.0
+        results_high = optimizer._calculate_physics(high_current_fees, data)
         assert np.all(results_high["occupancy"] >= 0.05)
         assert np.all(results_high["occupancy"] <= 1.0)
 
     def test_calculate_physics_revenue_calculation(self, optimizer, optimization_request):
         """Test that revenue is calculated correctly."""
         data = optimizer._convert_request_to_numpy(optimization_request)
-        prices = np.array([5.0, 6.0, 4.0])
+        current_fees = np.array([5.0, 6.0, 4.0])
 
-        results = optimizer._calculate_physics(prices, data)
+        results = optimizer._calculate_physics(current_fees, data)
 
-        # Revenue should be: price * capacity * occupancy
-        for i in range(len(prices)):
-            expected_revenue = prices[i] * data["capacities"][i] * results["occupancy"][i]
+        # Revenue should be: current_fee * capacity * occupancy
+        for i in range(len(current_fees)):
+            expected_revenue = current_fees[i] * data["capacities"][i] * results["occupancy"][i]
             assert abs(results["revenue"][i] - expected_revenue) < 1e-6
 
     def test_calculate_physics_objectives_types(self, optimizer, optimization_request):
         """Test that objective values are floats."""
         data = optimizer._convert_request_to_numpy(optimization_request)
-        prices = data["current_prices"]
+        current_fees = data["current_current_fees"]
 
-        results = optimizer._calculate_physics(prices, data)
+        results = optimizer._calculate_physics(current_fees, data)
 
         # All objectives should be numeric
         for obj in results["objectives"]:
             assert isinstance(obj, (float, np.floating))
 
     def test_calculate_physics_loss_aversion(self, optimizer, optimization_request):
-        """Test that loss aversion affects price increases more than decreases."""
+        """Test that loss aversion affects current_fee increases more than decreases."""
         data = optimizer._convert_request_to_numpy(optimization_request)
-        base_prices = data["current_prices"]
+        base_current_fees = data["current_current_fees"]
 
-        # 10% price increase
-        increased_prices = base_prices * 1.1
-        results_increase = optimizer._calculate_physics(increased_prices, data)
+        # 10% current_fee increase
+        increased_current_fees = base_current_fees * 1.1
+        results_increase = optimizer._calculate_physics(increased_current_fees, data)
 
-        # 10% price decrease
-        decreased_prices = base_prices * 0.9
-        results_decrease = optimizer._calculate_physics(decreased_prices, data)
+        # 10% current_fee decrease
+        decreased_current_fees = base_current_fees * 0.9
+        results_decrease = optimizer._calculate_physics(decreased_current_fees, data)
 
         # The demand drop from a 10% increase should be larger than
         # the demand gain from a 10% decrease (loss aversion)
@@ -294,9 +293,9 @@ class TestNSGA3OptimizerSimulation:
     def test_simulate_scenario_returns_four_objectives(self, optimizer, optimization_request):
         """Test that simulation returns exactly 4 objectives."""
         data = optimizer._convert_request_to_numpy(optimization_request)
-        prices = data["current_prices"]
+        current_fees = data["current_current_fees"]
 
-        f1, f2, f3, f4 = optimizer._simulate_scenario(prices, optimization_request)
+        f1, f2, f3, f4 = optimizer._simulate_scenario(current_fees, optimization_request)
 
         # Should return 4 float values
         assert isinstance(f1, (float, np.floating))
@@ -307,13 +306,13 @@ class TestNSGA3OptimizerSimulation:
     def test_simulate_scenario_consistent_with_physics(self, optimizer, optimization_request):
         """Test that simulation wrapper matches physics calculation."""
         data = optimizer._convert_request_to_numpy(optimization_request)
-        prices = data["current_prices"]
+        current_fees = data["current_current_fees"]
 
         # Get objectives from simulation
-        sim_objectives = optimizer._simulate_scenario(prices, optimization_request)
+        sim_objectives = optimizer._simulate_scenario(current_fees, optimization_request)
 
         # Get objectives from physics directly
-        physics_results = optimizer._calculate_physics(prices, data)
+        physics_results = optimizer._calculate_physics(current_fees, data)
         physics_objectives = physics_results["objectives"]
 
         # Should match
@@ -333,7 +332,6 @@ class TestNSGA3OptimizerOptimization:
 
         # Check required fields
         assert hasattr(response, 'scenarios')
-        assert hasattr(response, 'computation_time_seconds')
 
     def test_optimize_returns_multiple_scenarios(self, optimizer, optimization_request):
         """Test that optimize returns multiple Pareto-optimal scenarios."""
@@ -362,8 +360,8 @@ class TestNSGA3OptimizerOptimization:
             # Check zone results
             assert len(scenario.zones) == len(optimization_request.zones)
 
-    def test_optimize_respects_price_bounds(self, optimizer, optimization_request):
-        """Test that optimized prices respect min/max fee constraints."""
+    def test_optimize_respects_current_fee_bounds(self, optimizer, optimization_request):
+        """Test that optimized current_fees respect min/max fee constraints."""
         response = optimizer.optimize(optimization_request)
         zones = optimization_request.zones
 
@@ -373,23 +371,13 @@ class TestNSGA3OptimizerOptimization:
                 assert zone_result.new_fee >= zones[i].min_fee
                 assert zone_result.new_fee <= zones[i].max_fee
 
-    def test_optimize_computation_time_tracked(self, optimizer, optimization_request):
-        """Test that computation time is tracked and reasonable."""
-        response = optimizer.optimize(optimization_request)
-
-        # Should have computation time
-        assert response.computation_time_seconds > 0
-
-        # Should be reasonable (less than 60 seconds for small test)
-        assert response.computation_time_seconds < 60.0
-
     def test_optimize_reproducibility_with_seed(self):
         """Test that optimization is reproducible with same seed."""
         zones = [
-            ParkingZoneInput(
+            ParkingZone(
                 id=1,
-                pseudonym="TestZone",
-                price=Decimal("3.0"),
+                name="TestZone",
+                current_fee=3.0,
                 position=(49.01, 8.41),
                 maximum_capacity=100,
                 current_capacity=50,
@@ -424,10 +412,10 @@ class TestNSGA3OptimizerOptimization:
     def test_optimize_with_single_zone(self, optimizer):
         """Test optimization with a single parking zone."""
         zones = [
-            ParkingZoneInput(
+            ParkingZone(
                 id=1,
-                pseudonym="SingleZone",
-                price=Decimal("3.0"),
+                name="SingleZone",
+                current_fee=3.0,
                 position=(49.01, 8.41),
                 maximum_capacity=100,
                 current_capacity=60,
@@ -456,7 +444,7 @@ class TestNSGA3OptimizerOptimization:
         original_ids = {z.id for z in optimization_request.zones}
 
         for scenario in response.scenarios:
-            result_ids = {z.zone_id for z in scenario.zones}
+            result_ids = {z.id for z in scenario.zones}
             assert result_ids == original_ids
 
 
@@ -519,10 +507,10 @@ class TestNSGA3OptimizerBestSolutionSelection:
         """Test selection when only one scenario exists."""
         # Create a response with a single scenario
         zones = [
-            ParkingZoneInput(
+            ParkingZone(
                 id=1,
-                pseudonym="Zone",
-                price=Decimal("3.0"),
+                name="Zone",
+                current_fee=3.0,
                 position=(49.01, 8.41),
                 maximum_capacity=100,
                 current_capacity=50,
@@ -551,10 +539,10 @@ class TestNSGA3OptimizerEdgeCases:
     def test_optimizer_with_different_random_seeds(self):
         """Test that different seeds produce different results."""
         zones = [
-            ParkingZoneInput(
+            ParkingZone(
                 id=1,
-                pseudonym="Zone",
-                price=Decimal("3.0"),
+                name="Zone",
+                current_fee=3.0,
                 position=(49.01, 8.41),
                 maximum_capacity=100,
                 current_capacity=50,
@@ -578,19 +566,19 @@ class TestNSGA3OptimizerEdgeCases:
         # Results should differ (at least in some scenarios)
         # Note: With genetic algorithms, there's a small chance they could be identical
         # but with different seeds, it's highly unlikely
-        prices1 = [s.zones[0].new_fee for s in response1.scenarios]
-        prices2 = [s.zones[0].new_fee for s in response2.scenarios]
+        current_fees1 = [s.zones[0].new_fee for s in response1.scenarios]
+        current_fees2 = [s.zones[0].new_fee for s in response2.scenarios]
 
-        # At least one price should differ
-        assert prices1 != prices2
+        # At least one current_fee should differ
+        assert current_fees1 != current_fees2
 
-    def test_optimizer_with_tight_price_bounds(self, optimizer):
-        """Test optimization with very tight price bounds."""
+    def test_optimizer_with_tight_current_fee_bounds(self, optimizer):
+        """Test optimization with very tight current_fee bounds."""
         zones = [
-            ParkingZoneInput(
+            ParkingZone(
                 id=1,
-                pseudonym="TightBounds",
-                price=Decimal("3.0"),
+                name="TightBounds",
+                current_fee=3.0,
                 position=(49.01, 8.41),
                 maximum_capacity=100,
                 current_capacity=50,
@@ -609,17 +597,17 @@ class TestNSGA3OptimizerEdgeCases:
         # Should complete without errors
         assert len(response.scenarios) >= 1
 
-        # All prices should be within tight bounds
+        # All current_fees should be within tight bounds
         for scenario in response.scenarios:
             assert 2.9 <= scenario.zones[0].new_fee <= 3.1
 
     def test_optimizer_with_fully_occupied_zone(self, optimizer):
         """Test optimization with a fully occupied parking zone."""
         zones = [
-            ParkingZoneInput(
+            ParkingZone(
                 id=1,
-                pseudonym="FullZone",
-                price=Decimal("3.0"),
+                name="FullZone",
+                current_fee=3.0,
                 position=(49.01, 8.41),
                 maximum_capacity=100,
                 current_capacity=100,  # Fully occupied
@@ -635,16 +623,16 @@ class TestNSGA3OptimizerEdgeCases:
 
         response = optimizer.optimize(request)
 
-        # Should complete and suggest higher prices for full zone
+        # Should complete and suggest higher current_fees for full zone
         assert len(response.scenarios) >= 1
 
     def test_optimizer_with_empty_zone(self, optimizer):
         """Test optimization with an empty parking zone."""
         zones = [
-            ParkingZoneInput(
+            ParkingZone(
                 id=1,
-                pseudonym="EmptyZone",
-                price=Decimal("8.0"),
+                name="EmptyZone",
+                current_fee=8.0,
                 position=(49.01, 8.41),
                 maximum_capacity=100,
                 current_capacity=0,  # Empty
@@ -660,5 +648,5 @@ class TestNSGA3OptimizerEdgeCases:
 
         response = optimizer.optimize(request)
 
-        # Should complete and suggest lower prices for empty zone
+        # Should complete and suggest lower current_fees for empty zone
         assert len(response.scenarios) >= 1

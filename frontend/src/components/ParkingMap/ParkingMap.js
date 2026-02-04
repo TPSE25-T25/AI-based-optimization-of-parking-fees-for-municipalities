@@ -24,10 +24,10 @@ const ParkingMap = ({ zones, selectedZoneId, onZoneClick, isLoading, error }) =>
   // ===== EFFECTS =====
   useEffect(() => {
     if (zones && zones.length > 0) {
-      const hasCoordinates = zones.some((zone) => zone.lat && zone.lon);
+      const hasCoordinates = zones.some((zone) => zone.position);
       if (hasCoordinates) {
-        const avgLat = zones.reduce((sum, zone) => sum + (zone.lat || 0), 0) / zones.length;
-        const avgLon = zones.reduce((sum, zone) => sum + (zone.lon || 0), 0) / zones.length;
+        const avgLat = zones.reduce((sum, zone) => sum + (zone.position[0] || 0), 0) / zones.length;
+        const avgLon = zones.reduce((sum, zone) => sum + (zone.position[1] || 0), 0) / zones.length;
         setMapCenter([avgLat, avgLon]);
       }
     }
@@ -57,17 +57,19 @@ const ParkingMap = ({ zones, selectedZoneId, onZoneClick, isLoading, error }) =>
     markersRef.current = {};
 
     zones.forEach((zone) => {
-      const lat = zone.lat || mapCenter[0];
-      const lon = zone.lon || mapCenter[1];
+      const lat = zone.position[0] || mapCenter[0];
+      const lon = zone.position[1] || mapCenter[1];
 
       if (!lat || !lon) return;
 
       let color = '#3388ff';
-      if (zone.occupancy_rate >= 0.85) {
+      const occupancyRate = (zone.current_capacity / zone.maximum_capacity) ?? 0;
+      
+      if (occupancyRate >= 0.85) {
         color = '#e74c3c';
-      } else if (zone.occupancy_rate >= 0.65) {
+      } else if (occupancyRate >= 0.65) {
         color = '#f39c12';
-      } else if (zone.occupancy_rate >= 0.3) {
+      } else if (occupancyRate >= 0.3) {
         color = '#27ae60';
       } else {
         color = '#9b59b6';
@@ -86,12 +88,12 @@ const ParkingMap = ({ zones, selectedZoneId, onZoneClick, isLoading, error }) =>
         <div style="font-family: Arial, sans-serif; min-width: 200px;">
           <h4 style="margin: 8px 0;">${zone.name || `Zone ${zone.id}`}</h4>
           <hr style="margin: 8px 0;" />
-          <p><b>Current Fee:</b> $${(zone.current_fee || 0).toFixed(2)}/hr</p>
-          <p><b>Occupancy:</b> ${((zone.occupancy_rate || 0) * 100).toFixed(1)}%</p>
-          <p><b>Capacity:</b> ${zone.capacity || 'N/A'} spots</p>
+          <p><b>Current Fee:</b> $${zone.current_fee.toFixed(2)}/hr</p>
+          <p><b>Occupancy:</b> ${((zone.current_capacity / zone.maximum_capacity) * 100).toFixed(1)}%</p>
+          <p><b>Capacity:</b> ${zone.maximum_capacity || 'N/A'} spots</p>
           ${
-            zone.suggested_fee
-              ? `<p><b>Suggested Fee:</b> $${zone.suggested_fee.toFixed(2)}/hr</p>`
+            zone.new_fee
+              ? `<p><b>New Fee:</b> $${zone.new_fee.toFixed(2)}/hr</p>`
               : ''
           }
         </div>

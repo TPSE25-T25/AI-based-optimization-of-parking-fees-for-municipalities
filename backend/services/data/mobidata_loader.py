@@ -4,11 +4,10 @@ Loads real-world parking data from MobiData BW API and converts to City model.
 """
 
 from typing import List, Tuple, Optional
-from decimal import Decimal
 
 from backend.services.api.mobidata_api import MobiDataAPI
 from backend.models.city import City, ParkingZone, PointOfInterest
-from backend.services.optimizer.schemas.optimization_schema import ParkingZoneInput
+from backend.services.optimizer.schemas.optimization_schema import ParkingZone
 from backend.services.data.parking_data_loader import ParkingDataLoader
 
 
@@ -27,7 +26,7 @@ class MobiDataLoader(ParkingDataLoader):
         city_name: Optional[str] = None,
         center_coords: Optional[Tuple[float, float]] = None,
         search_radius: int = 5000,
-        default_price: float = 2.0,
+        default_current_fee: float = 2.0,
         default_elasticity: float = -0.4
     ):
         """
@@ -37,8 +36,8 @@ class MobiDataLoader(ParkingDataLoader):
             city_name: Name of the city to search for (e.g., "Karlsruhe")
             center_coords: (latitude, longitude) for radius search
             search_radius: Search radius in meters (default: 5000m = 5km)
-            default_price: Default hourly parking price when not available
-            default_elasticity: Default price elasticity coefficient
+            default_current_fee: Default hourly parking current_fee when not available
+            default_elasticity: Default current_fee elasticity coefficient
         """
         if not city_name and not center_coords:
             raise ValueError("Either city_name or center_coords must be provided")
@@ -46,7 +45,7 @@ class MobiDataLoader(ParkingDataLoader):
         self.city_name = city_name
         self.center_coords = center_coords
         self.search_radius = search_radius
-        self.default_price = default_price
+        self.default_current_fee = default_current_fee
         self.default_elasticity = default_elasticity
         
         self.api = MobiDataAPI()
@@ -82,16 +81,16 @@ class MobiDataLoader(ParkingDataLoader):
         min_lon -= lon_padding
         max_lon += lon_padding
         
-        # Determine city pseudonym
+        # Determine city name
         if self.city_name:
-            city_pseudonym = self.city_name.replace(" ", "_").replace(",", "")
+            city_name = self.city_name.replace(" ", "_").replace(",", "")
         else:
-            city_pseudonym = f"City_{self.center_coords[0]:.4f}_{self.center_coords[1]:.4f}"
+            city_name = f"City_{self.center_coords[0]:.4f}_{self.center_coords[1]:.4f}"
         
         # Create City model
         city = City(
             id=1,
-            pseudonym=city_pseudonym,
+            name=city_name,
             min_latitude=min_lat,
             max_latitude=max_lat,
             min_longitude=min_lon,
@@ -100,23 +99,23 @@ class MobiDataLoader(ParkingDataLoader):
             point_of_interests=[]  # MobiData doesn't provide POIs
         )
         
-        print(f"✅ City model created: {city.pseudonym}")
+        print(f"✅ City model created: {city.name}")
         print(f"   Bounds: ({min_lat:.4f}, {min_lon:.4f}) to ({max_lat:.4f}, {max_lon:.4f})")
         print(f"   Total capacity: {city.total_parking_capacity()} spots")
         print(f"   Occupancy: {city.city_occupancy_rate()*100:.1f}%")
         
         return city
     
-    def _convert_site_to_parking_zone_input(self, site: dict, index: int) -> ParkingZoneInput:
+    def _convert_site_to_parking_zone_input(self, site: dict, index: int) -> ParkingZone:
         """
-        Convert a MobiData parking site to a ParkingZoneInput model.
+        Convert a MobiData parking site to a ParkingZone model.
         
         Args:
             site: Parking site data from MobiData API
             index: Sequential index for ID assignment
             
         Returns:
-            ParkingZoneInput object
+            ParkingZone object
         """
         # Extract required fields
         site_id = site.get('id', index + 1)
@@ -144,14 +143,14 @@ class MobiDataLoader(ParkingDataLoader):
         # Ensure current doesn't exceed maximum
         current_capacity = min(current_capacity, max_capacity)
         
-        # Price information
-        price = self._extract_price(site)
+        # current_fee information
+        current_fee = self._extract_current_fee(site)
         
-        # Create ParkingZoneInput
-        zone = ParkingZoneInput(
+        # Create ParkingZone
+        zone = ParkingZone(
             id=site_id,
-            pseudonym=name.replace(" ", "_").replace(",", "")[:50],
-            price=price,
+            name=name.replace(" ", "_").replace(",", "")[:50],
+            current_fee=current_fee,
             position=[lat, lon],
             maximum_capacity=max_capacity,
             current_capacity=current_capacity,
@@ -163,16 +162,16 @@ class MobiDataLoader(ParkingDataLoader):
         
         return zone
     
-    def _convert_spot_to_parking_zone_input(self, spot: dict, index: int) -> ParkingZoneInput:
+    def _convert_spot_to_parking_zone_input(self, spot: dict, index: int) -> ParkingZone:
         """
-        Convert a MobiData parking spot to a ParkingZoneInput model.
+        Convert a MobiData parking spot to a ParkingZone model.
         
         Args:
             spot: Parking spot data from MobiData API
             index: Sequential index for ID assignment
             
         Returns:
-            ParkingZoneInput object
+            ParkingZone object
         """
         # Extract required fields
         spot_id = spot.get('id', index + 1)
@@ -189,18 +188,18 @@ class MobiDataLoader(ParkingDataLoader):
         is_occupied = spot.get('is_occupied', False)
         current_capacity = 1 if is_occupied else 0
         
-        # Price information - spots might be free/on-street parking
+        # current_fee information - spots might be free/on-street parking
         has_fee = spot.get('has_fee', False)
-        price = self.default_price if has_fee else 0.0
+        current_fee = self.default_current_fee if has_fee else 0.0
         
         # Generate a name for the spot
         name = f"ParkingSpot_{spot_id}"
         
-        # Create ParkingZoneInput
-        zone = ParkingZoneInput(
+        # Create ParkingZone
+        zone = ParkingZone(
             id=spot_id,
-            pseudonym=name[:50],
-            price=price,
+            name=name[:50],
+            current_fee=current_fee,
             position=[lat, lon],
             maximum_capacity=max_capacity,
             current_capacity=current_capacity,
@@ -212,15 +211,15 @@ class MobiDataLoader(ParkingDataLoader):
         
         return zone
     
-    def _extract_price(self, site: dict) -> float:
+    def _extract_current_fee(self, site: dict) -> float:
         """
-        Extract or estimate parking price from site data.
+        Extract or estimate parking current_fee from site data.
         
         Args:
             site: Parking site data from API
             
         Returns:
-            Hourly parking price
+            Hourly parking current_fee
         """
         # Check if site has fee information
         has_fee = site.get('has_fee', True)
@@ -229,7 +228,7 @@ class MobiDataLoader(ParkingDataLoader):
         
         # MobiData doesn't provide detailed pricing, use default
         # Could be enhanced with external pricing database
-        return self.default_price
+        return self.default_current_fee
     
     def _estimate_capacity(self, site_type: str) -> int:
         """
@@ -252,7 +251,7 @@ class MobiDataLoader(ParkingDataLoader):
         
         return capacity_map.get(site_type, 50)
     
-    def load_zones_for_optimization(self, limit: int = 1000) -> List[ParkingZoneInput]:
+    def load_zones_for_optimization(self, limit: int = 1000) -> List[ParkingZone]:
         """
         Load parking zones in optimization schema format.
         Compatible with the optimization pipeline.
@@ -262,7 +261,7 @@ class MobiDataLoader(ParkingDataLoader):
             cluster: Whether to cluster zones (default: True)
             
         Returns:
-            List of ParkingZoneInput objects ready for optimization
+            List of ParkingZone objects ready for optimization
         """        
         print(f"🌍 Loading parking data from MobiData BW API...")
         
@@ -282,7 +281,7 @@ class MobiDataLoader(ParkingDataLoader):
         num_spots = sum(1 for item in sites if item.get('_type') == 'spot')
         print(f"   Found {len(sites)} parking locations ({num_sites} sites, {num_spots} spots)")
         
-        # Convert API sites/spots to ParkingZoneInput objects
+        # Convert API sites/spots to ParkingZone objects
         zones = []
         for idx, item in enumerate(sites):
             try:

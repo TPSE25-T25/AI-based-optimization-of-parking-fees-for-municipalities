@@ -6,10 +6,10 @@ Supports loading from either OSMnx (OpenStreetMap) or MobiData BW API.
 from typing import List, Literal
 
 from backend.models.city import City
-from backend.services.optimizer.schemas.optimization_schema import ParkingZoneInput
+from backend.services.optimizer.schemas.optimization_schema import ParkingZone
 from backend.services.data.parking_data_loader import ParkingDataLoader
 from backend.services.data.osmnx_loader import OSMnxLoader
-from backend.services.api.mobidata_api import MobiDataLoader
+from backend.services.data.mobidata_loader import MobiDataLoader
 
 
 class KarlsruheLoader(ParkingDataLoader):
@@ -60,13 +60,13 @@ class KarlsruheLoader(ParkingDataLoader):
                 city_name="Karlsruhe",
                 center_coords=(self.CENTER_LAT, self.CENTER_LON),
                 search_radius=10000,  # 12km radius
-                default_price=2.0,
+                default_current_fee=2.0,
                 default_elasticity=-0.4
             )
         else:
             raise ValueError(f"Invalid source: {source}. Must be 'osmnx' or 'mobidata'")
 
-    def load_zones_for_optimization(self, limit: int = 1000) -> List[ParkingZoneInput]:
+    def load_zones_for_optimization(self, limit: int = 1000) -> List[ParkingZone]:
         """
         Loads zones for optimization from the configured source.
         
@@ -74,7 +74,7 @@ class KarlsruheLoader(ParkingDataLoader):
             limit: Maximum number of zones to load
             
         Returns:
-            List of ParkingZoneInput objects ready for optimization
+            List of ParkingZone objects ready for optimization
         """
         return self.loader.load_zones_for_optimization(limit)
     

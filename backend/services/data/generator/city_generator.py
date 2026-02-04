@@ -5,7 +5,6 @@ City and parking lot generation utilities for simulation testing.
 import random
 import math
 from typing import List, Tuple, Optional
-from decimal import Decimal
 
 from backend.models.city import City, PointOfInterest, ParkingZone
 
@@ -30,7 +29,7 @@ class ParkingZoneGenerator:
         count: int,
         lat_range: Tuple[float, float],
         lon_range: Tuple[float, float],
-        price_range: Tuple[Decimal, Decimal] = (Decimal('1.0'), Decimal('10.0')),
+        current_fee_range: Tuple[float, float] = (1.0, 10.0),
         capacity_range: Tuple[int, int] = (50, 300),
         initial_occupancy: float = 0.0
     ) -> List[ParkingZone]:
@@ -41,7 +40,7 @@ class ParkingZoneGenerator:
             count: Number of parking lots to generate
             lat_range: (min_lat, max_lat) latitude bounds
             lon_range: (min_lon, max_lon) longitude bounds
-            price_range: (min, max) hourly parking price
+            current_fee_range: (min, max) hourly parking current_fee
             capacity_range: (min, max) parking capacity
             initial_occupancy: Initial occupancy rate (0.0 to 1.0)
 
@@ -54,17 +53,19 @@ class ParkingZoneGenerator:
             lat = random.uniform(lat_range[0], lat_range[1])
             lon = random.uniform(lon_range[0], lon_range[1])
 
-            price = Decimal(str(random.uniform(float(price_range[0]), float(price_range[1]))))
+            current_fee = random.uniform(current_fee_range[0], current_fee_range[1])
             max_capacity = random.randint(capacity_range[0], capacity_range[1])
             current_capacity = int(max_capacity * initial_occupancy)
 
             lot = ParkingZone(
                 id=i + 1,
-                pseudonym=f"ParkingZone_{i+1:03d}",
-                price=price,
+                name=f"ParkingZone_{i+1:03d}",
+                current_fee=current_fee,
                 position=(lat, lon),
                 maximum_capacity=max_capacity,
-                current_capacity=current_capacity
+                current_capacity=current_capacity,
+                min_fee=0.5,
+                max_fee=10.0
             )
 
             lots.append(lot)
@@ -78,7 +79,7 @@ class ParkingZoneGenerator:
         cluster_radius_deg: float = 0.01,
         lat_range: Optional[Tuple[float, float]] = None,
         lon_range: Optional[Tuple[float, float]] = None,
-        price_range: Tuple[Decimal, Decimal] = (Decimal('2.0'), Decimal('8.0')),
+        current_fee_range: Tuple[float, float] = (2.0, 8.0),
         capacity_range: Tuple[int, int] = (50, 200)
     ) -> List[ParkingZone]:
         """
@@ -90,7 +91,7 @@ class ParkingZoneGenerator:
             cluster_radius_deg: Maximum distance from cluster center in degrees
             lat_range: Optional (min_lat, max_lat) to clamp results
             lon_range: Optional (min_lon, max_lon) to clamp results
-            price_range: (min, max) hourly parking price
+            current_fee_range: (min, max) hourly parking current_fee
             capacity_range: (min, max) parking capacity
 
         Returns:
@@ -117,13 +118,13 @@ class ParkingZoneGenerator:
             if lon_range:
                 lon = max(lon_range[0], min(lon_range[1], lon))
 
-            price = Decimal(str(random.uniform(float(price_range[0]), float(price_range[1]))))
+            current_fee = random.uniform(current_fee_range[0], current_fee_range[1])
             max_capacity = random.randint(capacity_range[0], capacity_range[1])
 
             lot = ParkingZone(
                 id=i + 1,
-                pseudonym=f"ClusteredLot_{i+1:03d}",
-                price=price,
+                name=f"ClusteredLot_{i+1:03d}",
+                current_fee=current_fee,
                 position=(lat, lon),
                 maximum_capacity=max_capacity,
                 current_capacity=0
@@ -138,7 +139,7 @@ class ParkingZoneGenerator:
         pois: List[PointOfInterest],
         lots_per_poi: int = 2,
         distance_range_deg: Tuple[float, float] = (0.001, 0.005),
-        price_variation: float = 0.3
+        current_fee_variation: float = 0.3
     ) -> List[ParkingZone]:
         """
         Generate parking lots near points of interest with pricing based on proximity.
@@ -147,7 +148,7 @@ class ParkingZoneGenerator:
             pois: List of points of interest
             lots_per_poi: Number of parking lots to generate per POI
             distance_range_deg: (min, max) distance from POI in degrees (~0.001 deg ≈ 100m)
-            price_variation: Price variation factor (0.0 to 1.0)
+            current_fee_variation: current_fee variation factor (0.0 to 1.0)
 
         Returns:
             List of generated parking lots
@@ -158,22 +159,22 @@ class ParkingZoneGenerator:
         lots = []
         lot_id = 1
 
-        # Base prices for different POI types
-        base_prices = {
-            'downtown': Decimal('6.0'),
-            'mall': Decimal('3.0'),
-            'university': Decimal('2.5'),
-            'hospital': Decimal('5.0'),
-            'station': Decimal('4.0'),
-            'default': Decimal('3.5')
+        # Base current_fees for different POI types
+        base_current_fees = {
+            'downtown': 6.0,
+            'mall': 3.0,
+            'university': 2.5,
+            'hospital': 5.0,
+            'station': 4.0,
+            'default': 3.5
         }
 
         for poi in pois:
-            # Determine base price from POI name
-            base_price = base_prices['default']
-            for key in base_prices:
-                if key.lower() in poi.pseudonym.lower():
-                    base_price = base_prices[key]
+            # Determine base current_fee from POI name
+            base_current_fee = base_current_fees['default']
+            for key in base_current_fees:
+                if key.lower() in poi.name.lower():
+                    base_current_fee = base_current_fees[key]
                     break
 
             for j in range(lots_per_poi):
@@ -183,26 +184,28 @@ class ParkingZoneGenerator:
                 lat = poi.position[0] + distance * math.cos(angle)
                 lon = poi.position[1] + distance * math.sin(angle)
 
-                # Price varies based on distance (closer = more expensive)
+                # current_fee varies based on distance (closer = more expensive)
                 distance_factor = 1.0 - (distance - distance_range_deg[0]) / (distance_range_deg[1] - distance_range_deg[0])
-                price_multiplier = 1.0 + (distance_factor * price_variation)
-                price = base_price * Decimal(str(price_multiplier))
+                current_fee_multiplier = 1.0 + (distance_factor * current_fee_variation)
+                current_fee = base_current_fee * current_fee_multiplier
 
                 # Capacity varies by POI type
-                if 'downtown' in poi.pseudonym.lower():
+                if 'downtown' in poi.name.lower():
                     capacity = random.randint(100, 250)
-                elif 'mall' in poi.pseudonym.lower():
+                elif 'mall' in poi.name.lower():
                     capacity = random.randint(200, 400)
                 else:
                     capacity = random.randint(80, 180)
 
                 lot = ParkingZone(
                     id=lot_id,
-                    pseudonym=f"{poi.pseudonym}_Lot_{j+1}",
-                    price=price,
+                    name=f"{poi.name}_Lot_{j+1}",
+                    current_fee=current_fee,
                     position=(lat, lon),
                     maximum_capacity=capacity,
-                    current_capacity=0
+                    current_capacity=0,
+                    min_fee=0.5,
+                    max_fee=10.0
                 )
 
                 lots.append(lot)
@@ -230,7 +233,7 @@ class CityGenerator:
     def generate_simple_city(
         self,
         city_id: int = 1,
-        pseudonym: str = "SimulatedCity",
+        name: str = "SimulatedCity",
         center_lat: float = 49.0,
         center_lon: float = 8.4,
         size_deg: float = 0.1,
@@ -242,7 +245,7 @@ class CityGenerator:
 
         Args:
             city_id: Unique city identifier
-            pseudonym: City name
+            name: City name
             center_lat: Center latitude
             center_lon: Center longitude
             size_deg: Size of city area in degrees (~0.1 deg ≈ 10km)
@@ -260,7 +263,7 @@ class CityGenerator:
 
         city = City(
             id=city_id,
-            pseudonym=pseudonym,
+            name=name,
             min_latitude=min_lat,
             max_latitude=max_lat,
             min_longitude=min_lon,
@@ -281,7 +284,7 @@ class CityGenerator:
 
             poi = PointOfInterest(
                 id=i + 1,
-                pseudonym=name,
+                name=name,
                 position=(lat, lon)
             )
             city.add_point_of_interest(poi)
@@ -301,7 +304,7 @@ class CityGenerator:
     def generate_urban_city(
         self,
         city_id: int = 1,
-        pseudonym: str = "UrbanCity",
+        name: str = "UrbanCity",
         center_lat: float = 49.0,
         center_lon: float = 8.4,
         size_deg: float = 0.2
@@ -311,7 +314,7 @@ class CityGenerator:
 
         Args:
             city_id: Unique city identifier
-            pseudonym: City name
+            name: City name
             center_lat: Center latitude
             center_lon: Center longitude
             size_deg: Size of city area in degrees
@@ -327,7 +330,7 @@ class CityGenerator:
 
         city = City(
             id=city_id,
-            pseudonym=pseudonym,
+            name=name,
             min_latitude=min_lat,
             max_latitude=max_lat,
             min_longitude=min_lon,
@@ -352,7 +355,7 @@ class CityGenerator:
         for i, (name, position) in enumerate(pois_config):
             poi = PointOfInterest(
                 id=i + 1,
-                pseudonym=name,
+                name=name,
                 position=position
             )
             city.add_point_of_interest(poi)
@@ -381,7 +384,7 @@ class CityGenerator:
             cluster_radius_deg=0.005,
             lat_range=(min_lat, max_lat),
             lon_range=(min_lon, max_lon),
-            price_range=(Decimal('1.0'), Decimal('2.5')),
+            current_fee_range=(1.0, 2.5),
             capacity_range=(300, 500)
         )
 
@@ -389,7 +392,7 @@ class CityGenerator:
         next_id = len(city.parking_zones) + 1
         for i, lot in enumerate(peripheral_lots):
             lot.id = next_id + i
-            lot.pseudonym = f"Peripheral_{i+1}"
+            lot.name = f"Peripheral_{i+1}"
             city.add_parking_zone(lot)
 
         return city
@@ -397,7 +400,7 @@ class CityGenerator:
     def generate_grid_city(
         self,
         city_id: int = 1,
-        pseudonym: str = "GridCity",
+        name: str = "GridCity",
         center_lat: float = 49.0,
         center_lon: float = 8.4,
         size_deg: float = 0.1,
@@ -408,7 +411,7 @@ class CityGenerator:
 
         Args:
             city_id: Unique city identifier
-            pseudonym: City name
+            name: City name
             center_lat: Center latitude
             center_lon: Center longitude
             size_deg: Size of city area in degrees
@@ -425,7 +428,7 @@ class CityGenerator:
 
         city = City(
             id=city_id,
-            pseudonym=pseudonym,
+            name=name,
             min_latitude=min_lat,
             max_latitude=max_lat,
             min_longitude=min_lon,
@@ -446,7 +449,7 @@ class CityGenerator:
 
                 poi = PointOfInterest(
                     id=poi_id,
-                    pseudonym=f"Grid_{row}_{col}",
+                    name=f"Grid_{row}_{col}",
                     position=(lat, lon)
                 )
                 city.add_point_of_interest(poi)

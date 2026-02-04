@@ -2,23 +2,18 @@
 Adapter layer for converting between optimization schemas and simulation models.
 
 This module bridges the gap between:
-- OptimizationRequest/ParkingZoneInput (used by NSGA-3 optimizer)
+- OptimizationRequest/ParkingZone (used by NSGA-3 optimizer)
 - City/ParkingZone/Driver models (used by ParkingSimulation)
 """
 
 from json import load
 from typing import List, Tuple
-from decimal import Decimal
-import random
 import numpy as np
 
 from backend.services.data.generator.driver_generator import DriverGenerator
 from backend.services.data.osmnx_loader import OSMnxLoader
-from backend.services.optimizer.schemas.optimization_schema import (
-    OptimizationRequest,
-    ParkingZoneInput
-)
-from backend.models.city import City, ParkingZone
+from backend.services.optimizer.schemas.optimization_schema import OptimizationRequest
+from backend.models.city import City
 from backend.models.driver import Driver
 
 
@@ -59,7 +54,7 @@ class SimulationAdapter:
             request: The optimization request
             loader: OSMnx loader instance for fetching POIs
             city_id: Unique city identifier
-            city_name: City name/pseudonym
+            city_name: City name/name
 
         Returns:
             City model with parking lots
@@ -79,7 +74,7 @@ class SimulationAdapter:
         # Create city with real geographic bounds
         city = City(
             id=city_id,
-            pseudonym=city_name,
+            name=city_name,
             min_latitude=min_lat,
             max_latitude=max_lat,
             min_longitude=min_lon,
@@ -108,27 +103,27 @@ class SimulationAdapter:
         return DriverGenerator(self.random_seed).generate_random_drivers(num_drivers, city)
 
 
-    def apply_prices_to_city(
+    def apply_current_fees_to_city(
         self,
         city: City,
-        price_vector: np.ndarray,
+        current_fee_vector: np.ndarray,
         zone_ids: List[int]
     ) -> City:
         """
-        Apply a price vector to city parking lots.
+        Apply a current_fee vector to city parking lots.
 
         Args:
             city: The city model
-            price_vector: Array of prices (same order as zone_ids)
-            zone_ids: List of zone IDs corresponding to price_vector
+            current_fee_vector: Array of current_fees (same order as zone_ids)
+            zone_ids: List of zone IDs corresponding to current_fee_vector
 
         Returns:
-            City with updated prices (modifies in place and returns for convenience)
+            City with updated current_fees (modifies in place and returns for convenience)
         """
-        for price, zone_id in zip(price_vector, zone_ids):
-            lot = city.get_parking_zone_by_id(zone_id)
+        for current_fee, id in zip(current_fee_vector, zone_ids):
+            lot = city.get_parking_zone_by_id(id)
             if lot:
-                lot.price = Decimal(str(float(price)))
+                lot.current_fee = float(current_fee)
 
         return city
 

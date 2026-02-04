@@ -13,8 +13,6 @@ import osmnx as ox
 from sklearn.cluster import KMeans
 from shapely.geometry import Point
 from typing import List, Dict, Optional, Tuple
-from decimal import Decimal
-from backend.services.optimizer.schemas.optimization_schema import ParkingZoneInput
 from backend.models.city import PointOfInterest, City, ParkingZone
 from backend.services.data.parking_data_loader import ParkingDataLoader
 import urllib3
@@ -53,9 +51,9 @@ class OSMnxLoader(ParkingDataLoader):
         Args:
             place_name: City name for OSM query (e.g., "Berlin, Germany", "Paris, France")
             center_coords: (latitude, longitude) of city center for distance calculations
-            tariff_database: Optional dict mapping location keywords to hourly prices
+            tariff_database: Optional dict mapping location keywords to hourly current_fees
                             e.g., {"station": 2.50, "mall": 2.00}
-            default_elasticity: Price elasticity coefficient (default: -0.4)
+            default_elasticity: current_fee elasticity coefficient (default: -0.4)
         """
         self.place_name = place_name
         self.center_lat, self.center_lon = center_coords
@@ -92,7 +90,7 @@ class OSMnxLoader(ParkingDataLoader):
 
         return epsg
 
-    def load_zones_for_optimization(self, limit: int = 1000) -> List[ParkingZoneInput]:
+    def load_zones_for_optimization(self, limit: int = 1000) -> List[ParkingZone]:
         """
         Load parking zones in optimization schema format.
         Compatible with the optimization pipeline.
@@ -101,7 +99,7 @@ class OSMnxLoader(ParkingDataLoader):
             limit: Maximum number of parking zones to return (best zones by priority/area)
 
         Returns:
-            List of ParkingZoneInput objects ready for optimization
+            List of ParkingZone objects ready for optimization
         """
         self.zone_lookup = {}
 
@@ -294,7 +292,7 @@ class OSMnxLoader(ParkingDataLoader):
                 position=(self.center_lat, self.center_lon)
             )]
 
-    def _get_price(self, name: str, dist_km: float) -> float:
+    def _get_current_fee(self, name: str, dist_km: float) -> float:
         """
         Determines the current parking fee.
 
@@ -312,9 +310,9 @@ class OSMnxLoader(ParkingDataLoader):
         name_lower = str(name).lower()
 
         # 1. Database Lookup (substring matching)
-        for keyword, price in self.tariff_database.items():
+        for keyword, current_fee in self.tariff_database.items():
             if keyword.lower() in name_lower:
-                return price
+                return current_fee
 
         # 2. Fallback: Zonal Model (Concentric Circles)
         # These ranges work well for most European cities
@@ -410,7 +408,7 @@ class OSMnxLoader(ParkingDataLoader):
             # Linear interpolation: 80% at 1km -> 20% at 3km
             return 0.8 - ((dist_km - 1.0) * 0.3)
 
-    def _load_from_osm(self, limit: int) -> List[ParkingZoneInput]:
+    def _load_from_osm(self, limit: int) -> List[ParkingZone]:
         """
         Fetches, cleans, and enriches raw data from OpenStreetMap.
 
@@ -418,7 +416,7 @@ class OSMnxLoader(ParkingDataLoader):
             limit: Maximum number of zones to return
 
         Returns:
-            List of enriched ParkingZoneInput objects
+            List of enriched ParkingZone objects
         """
         try:
             # Filter for all amenity="parking" tags
@@ -479,20 +477,20 @@ class OSMnxLoader(ParkingDataLoader):
                 ) * 111.0
 
                 # --- ENRICHMENT ---
-                price = self._get_price(raw_name, dist_km)
+                current_fee = self._get_current_fee(raw_name, dist_km)
                 capacity = self._estimate_capacity(row, row["area"])
                 occupancy = self._estimate_occupancy(dist_km)
                 short_term_share = self._estimate_short_term_share(dist_km)
 
                 # Create Data Object
                 zone = self._create_zone_obj(
-                    zone_id=idx,
+                    id=idx,
                     name=str(raw_name),
                     capacity=capacity,
                     lat=lat,
                     lon=lon,
                     occupancy=occupancy,
-                    price=price,
+                    current_fee=current_fee,
                     short_term_share=short_term_share
                 )
 
@@ -522,40 +520,40 @@ class OSMnxLoader(ParkingDataLoader):
 
     def _create_zone_obj(
         self,
-        zone_id: int,
+        id: int,
         name: str,
         capacity: int,
         lat: float,
         lon: float,
         occupancy: float,
-        price: float,
+        current_fee: float,
         short_term_share: float
-    ) -> ParkingZoneInput:
+    ) -> ParkingZone:
         """
         Helper to create a validated Pydantic object.
 
         Args:
-            zone_id: Unique zone identifier
+            id: Unique zone identifier
             name: Zone name
             capacity: Number of parking spaces
             lat: Latitude
             lon: Longitude
             occupancy: Current occupancy rate (0.0-1.0)
-            price: Current hourly fee
+            current_fee: Current hourly fee
             short_term_share: Share of short-term parkers (0.0-1.0)
 
         Returns:
-            Validated ParkingZoneInput object
+            Validated ParkingZone object
         """
         clamped_occupancy = min(1.0, max(0.0, occupancy))
         current_capacity = int(capacity * clamped_occupancy)
 
-        return ParkingZoneInput(
-            id=zone_id,
+        return ParkingZone(
+            id=id,
             pseudonym=name,
             maximum_capacity=int(capacity),
             current_capacity=current_capacity,
-            price=Decimal(str(round(price, 2))),
+            current_fee=round(current_fee, 2),
             position=(lat, lon),
             min_fee=1.0,
             max_fee=8.0,
@@ -582,17 +580,17 @@ class OSMnxLoader(ParkingDataLoader):
         res_gdf["predicted_occupancy"] = np.nan
         res_gdf["predicted_revenue"] = np.nan
 
-        opt_dict = {z.zone_id: z for z in optimized_zones}
+        opt_dict = {z.id: z for z in optimized_zones}
 
         for idx, row in res_gdf.iterrows():
-            zid = row['zone_id']
+            zid = row['id']
             if zid in opt_dict:
                 opt = opt_dict[zid]
                 old = self.zone_lookup.get(zid)
                 if old:
                     # Round to 0.50 steps for cleaner UI visualization
                     res_gdf.at[idx, "new_fee"] = round(opt.new_fee * 2) / 2
-                    res_gdf.at[idx, "old_fee"] = float(old.price)
+                    res_gdf.at[idx, "old_fee"] = float(old.current_fee)
                     res_gdf.at[idx, "predicted_occupancy"] = opt.predicted_occupancy
                     res_gdf.at[idx, "predicted_revenue"] = opt.predicted_revenue
 
@@ -606,7 +604,7 @@ class OSMnxLoader(ParkingDataLoader):
         """
         Exports detailed simulation data to CSV for BI Tools.
 
-        Calculates deltas (Price Change, Revenue Change, Occupancy Change).
+        Calculates deltas (current_fee Change, Revenue Change, Occupancy Change).
 
         Args:
             optimized_zones: List of OptimizedZoneResult objects

@@ -8,13 +8,13 @@ export default function InfoPanel({ zone, onClose }) {
   // ===== LOGIC =====
   if (!zone) return null;
 
-  const occupancyPercent = ((zone.occupancy_rate || 0) * 100).toFixed(1);
+  const occupancyPercent = (zone.current_capacity / zone.maximum_capacity * 100).toFixed(1);
   const occupancyColor =
-    zone.occupancy_rate >= 0.85
+    occupancyPercent >= 85
       ? '#e74c3c'
-      : zone.occupancy_rate >= 0.65
+      : occupancyPercent >= 65
         ? '#f39c12'
-        : zone.occupancy_rate >= 0.3
+        : occupancyPercent >= 30
           ? '#27ae60'
           : '#9b59b6';
 
@@ -37,13 +37,13 @@ export default function InfoPanel({ zone, onClose }) {
         <div className="info-item">
           <span className="info-label">Current Fee:</span>
           <span className="info-value">
-            ${(zone.current_fee || 0).toFixed(2)}/hr
+            ${zone.current_fee.toFixed(2)}/hr
           </span>
         </div>
 
         <div className="info-item">
           <span className="info-label">Capacity:</span>
-          <span className="info-value">{zone.capacity || 'N/A'} spaces</span>
+          <span className="info-value">{zone.maximum_capacity || 'N/A'} spaces</span>
         </div>
 
         <div className="info-item">
@@ -56,7 +56,7 @@ export default function InfoPanel({ zone, onClose }) {
               <div
                 className="occupancy-fill-small"
                 style={{
-                  width: `${Math.min(100, zone.occupancy_rate * 100)}%`,
+                  width: `${Math.min(100, occupancyPercent)}%`,
                   backgroundColor: occupancyColor,
                 }}
               />
@@ -64,23 +64,47 @@ export default function InfoPanel({ zone, onClose }) {
           </div>
         </div>
 
-        {zone.suggested_fee && (
+      {zone.position && (
           <div className="info-item">
-            <span className="info-label">Suggested Fee:</span>
-            <span
-              className="info-value"
-              style={{ color: '#27ae60', fontWeight: 'bold' }}
-            >
-              ${zone.suggested_fee.toFixed(2)}/hr
+            <span className="info-label">Coordinates:</span>
+            <span className="info-value">
+              {zone.position[0].toFixed(4)}, {zone.position[1].toFixed(4)}
             </span>
           </div>
         )}
 
-        {zone.lat && zone.lon && (
+        {zone.new_fee && (
           <div className="info-item">
-            <span className="info-label">Coordinates:</span>
-            <span className="info-value">
-              {zone.lat.toFixed(4)}, {zone.lon.toFixed(4)}
+            <span className="info-label">New Fee:</span>
+            <span
+              className="info-value"
+              style={{ color: '#27ae60', fontWeight: 'bold' }}
+            >
+              ${zone.new_fee.toFixed(2)}/hr
+            </span>
+          </div>
+        )}
+
+        {zone.predicted_occupancy && (
+          <div className="info-item">
+            <span className="info-label">Predicted Occupancy:</span>
+            <span
+              className="info-value"
+              style={{ color: '#27ae60', fontWeight: 'bold' }}
+            >
+              {(zone.predicted_occupancy * 100).toFixed(2)}%
+            </span>
+          </div>
+        )}
+
+        {zone.predicted_revenue && (
+          <div className="info-item">
+            <span className="info-label">Predicted Revenue:</span>
+            <span
+              className="info-value"
+              style={{ color: '#27ae60', fontWeight: 'bold' }}
+            >
+              ${zone.predicted_revenue.toFixed(2)}
             </span>
           </div>
         )}

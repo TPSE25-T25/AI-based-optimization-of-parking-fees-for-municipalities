@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 from services.data.karlsruhe_loader import KarlsruheLoader
+from backend.services.optimizer.schemas.optimization_schema import ParkingZone
 from backend.services.optimizer.schemas.optimization_schema import OptimizationRequest, OptimizationResponse, PricingScenario, WeightSelectionRequest, OptimizationSettings
 from backend.services.optimizer.nsga3_optimizer_elasticity import NSGA3OptimizerElasticity
 from backend.services.optimizer.nsga3_optimizer_agent import NSGA3OptimizerAgentBased
@@ -32,17 +33,6 @@ app.add_middleware(
 )
 
 
-# Pydantic models
-class ParkingZone(BaseModel):
-    id: int
-    name: str
-    current_fee: Optional[float] = None
-    occupancy_rate: Optional[float] = None
-    suggested_fee: Optional[float] = None
-    lat: float = 0.0
-    lon: float = 0.0
-    capacity: Optional[int] = None
-    is_placeholder: bool = True  # Flag so UI/clients know data is synthetic
 # Config 
 source = "mobidata" # or "mobidata"
 limit = 3000  # Max limit for MobiData API
@@ -92,21 +82,8 @@ async def get_parking_zones():
     try:
         # Load city model which contains parking zones
         city = loader.load_city(limit=limit)
-
-        parking_zones = [
-            ParkingZone(
-                id=z.id,
-                name=z.pseudonym,
-                current_fee=float(z.price) if hasattr(z, 'price') else None,
-                occupancy_rate=z.current_capacity / z.maximum_capacity if hasattr(z, 'maximum_capacity') and z.maximum_capacity > 0 else None,
-                suggested_fee=None,  # synthetic / to be generated
-                lat=z.position[0],
-                lon=z.position[1],
-                capacity=z.maximum_capacity if hasattr(z, 'maximum_capacity') else None,
-                is_placeholder=False
-            )
-            for z in city.parking_zones
-        ]
+        parking_zones = city.parking_zones
+        
         if not parking_zones:
             raise HTTPException(status_code=502, detail="No parking data returned for Karlsruhe")
 

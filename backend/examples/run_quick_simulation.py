@@ -4,7 +4,6 @@ Quick test to verify the driver-based simulation integration works.
 
 import sys
 from pathlib import Path
-from decimal import Decimal
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -13,7 +12,7 @@ from backend.services.optimizer.nsga3_optimizer_agent import create_simulation_o
 from backend.services.optimizer.schemas.optimization_schema import (
     OptimizationRequest,
     OptimizationSettings,
-    ParkingZoneInput
+    ParkingZone
 )
 
 
@@ -24,11 +23,11 @@ def main():
 
     # Create a simple 2-zone request
     zones = [
-        ParkingZoneInput(
+        ParkingZone(
             id=1,
-            pseudonym="Zone A",
+            name="Zone A",
             maximum_capacity=100,
-            price=Decimal("2.0"),
+            current_fee=2.0,
             current_capacity=int(100 * 0.80),
             position=(0.0, 0.0),
             min_fee=1.0,
@@ -36,11 +35,11 @@ def main():
             elasticity=-0.5,
             short_term_share=0.6
         ),
-        ParkingZoneInput(
+        ParkingZone(
             id=2,
-            pseudonym="Zone B",
+            name="Zone B",
             maximum_capacity=80,
-            price=Decimal("1.5"),
+            current_fee=1.5,
             current_capacity=int(80 * 0.60),
             position=(100.0, 100.0),
             min_fee=0.5,
@@ -85,8 +84,8 @@ def main():
 
             print(f"\n  Zone Details:")
             for zone_result in scenario.zones:
-                original = next(z for z in zones if z.zone_id == zone_result.zone_id)
-                print(f"    {original.pseudonym}: ${float(original.price):.2f} → ${zone_result.new_fee:.2f}")
+                original = next(z for z in zones if z.id == zone_result.id)
+                print(f"    {original.name}: ${float(original.current_fee):.2f} → ${zone_result.new_fee:.2f}")
 
         print("\n" + "="*70)
         print("TEST PASSED ✓")

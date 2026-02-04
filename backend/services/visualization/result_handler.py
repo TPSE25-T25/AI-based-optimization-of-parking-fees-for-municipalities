@@ -93,13 +93,13 @@ class OptimizationResultHandler:
             new_fee = row['new_fee']
             old_fee = row['old_fee']
 
-            # Determine Color Logic based on price change
+            # Determine Color Logic based on current_fee change
             diff = new_fee - old_fee
             if diff > 0.1:
-                color = 'red'       # Price Hike (Expensive)
+                color = 'red'       # current_fee Hike (Expensive)
                 trend = "📈 Higher"
             elif diff < -0.1:
-                color = 'green'     # Price Drop (Cheaper)
+                color = 'green'     # current_fee Drop (Cheaper)
                 trend = "📉 Lower"
             else:
                 color = 'blue'      # Stable
@@ -131,7 +131,7 @@ class OptimizationResultHandler:
 
         Args:
             row: GeoDataFrame row
-            trend: Price trend string (e.g., "📈 Higher")
+            trend: current_fee trend string (e.g., "📈 Higher")
             method_label: Method label for display
 
         Returns:

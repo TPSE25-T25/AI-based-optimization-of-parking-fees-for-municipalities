@@ -2,7 +2,6 @@
 City models for parking simulation
 """
 
-from decimal import Decimal
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from typing import List, Tuple, Optional
 
@@ -15,7 +14,7 @@ class PointOfInterest(BaseModel):
         json_schema_extra={
             "example": {
                 "id": 1,
-                "pseudonym": "CityHall",
+                "name": "CityHall",
                 "position": [52.5200, 13.4050]
             }
         }
@@ -23,7 +22,7 @@ class PointOfInterest(BaseModel):
     
     # Unique identification
     id: int = Field(..., description="Unique point of interest identifier")
-    pseudonym: str = Field(..., min_length=1, description="Point of interest's pseudonym for simulation")
+    name: str = Field(..., min_length=1, description="Point of interest's name for simulation")
     
     # Location
     position: Tuple[float, float] = Field(..., description="Position (latitude, longitude)")
@@ -50,8 +49,8 @@ class ParkingZone(BaseModel):
         json_schema_extra={
             "example": {
                 "id": 1,
-                "pseudonym": "CenterLot001",
-                "price": "2.50",
+                "name": "CenterLot001",
+                "current_fee": "2.50",
                 "position": [52.5170, 13.4003],
                 "maximum_capacity": 150,
                 "current_capacity": 10
@@ -61,10 +60,8 @@ class ParkingZone(BaseModel):
     
     # Unique identification
     id: int = Field(..., description="Unique parking lot identifier")
-    pseudonym: str = Field(..., min_length=1, description="Parking lot's pseudonym for simulation")
+    name: str = Field(..., min_length=1, description="Parking lot's name for simulation")
     
-    # Pricing
-    price: Decimal = Field(..., ge=0, description="Hourly parking price")
     
     # Location data (latitude, longitude)
     position: Tuple[float, float] = Field(..., description="Parking lot position (latitude, longitude)")
@@ -72,6 +69,21 @@ class ParkingZone(BaseModel):
     # Capacity management
     maximum_capacity: int = Field(..., gt=0, description="Maximum number of parking spots")
     current_capacity: int = Field(..., ge=0, description="Currently occupied parking spots")
+    
+    # Pricing
+    current_fee: float = Field(..., ge=0, description="Hourly parking current_fee")
+    min_fee: float = Field(default=0.0, ge=0, description="Legal minimum fee")
+    max_fee: float = Field(default=10.0, description="Legal maximum fee")
+
+    # Simulation Data: How do users behave?
+    # Important for Objective 3: Demand drop
+    # syntax: 'le=0' (Less or Equal 0) because elasticity is usually negative
+    elasticity: float = Field(default=-0.5, le=0, description="current_fee elasticity (How strongly does demand drop with current_fee increase?)")
+
+    # [cite_start]Important for Objective 4: User groups [cite: 167, 173]
+    # syntax: 'ge=0' and 'le=1.0' ensures a valid percentage between 0% and 100%
+    short_term_share: float = Field(default=0.5, ge=0, le=1.0, description="Share of short-term parkers (0.0 - 1.0)")
+
     
     @model_validator(mode='after')
     def current_capacity_not_exceed_maximum(self):
@@ -115,7 +127,7 @@ class City(BaseModel):
 
     # Unique identification
     id: int = Field(..., description="Unique city identifier")
-    pseudonym: str = Field(..., min_length=1, description="City's pseudonym for simulation")
+    name: str = Field(..., min_length=1, description="City's name for simulation")
 
     # Geographic bounds (bounding box)
     min_latitude: float = Field(..., ge=-90, le=90, description="Minimum latitude of city bounds")
@@ -134,7 +146,7 @@ class City(BaseModel):
         json_schema_extra={
             "example": {
                 "id": 1,
-                "pseudonym": "Berlin_Mitte",
+                "name": "Berlin_Mitte",
                 "min_latitude": 52.5000,
                 "max_latitude": 52.5300,
                 "min_longitude": 13.3800,
@@ -142,8 +154,8 @@ class City(BaseModel):
                 "parking_zones": [
                     {
                         "id": 1,
-                        "pseudonym": "CenterLot001",
-                        "price": "2.50",
+                        "name": "CenterLot001",
+                        "current_fee": "2.50",
                         "position": [52.5170, 13.4003],
                         "maximum_capacity": 150,
                         "current_capacity": 75
@@ -152,12 +164,12 @@ class City(BaseModel):
                 "point_of_interests": [
                     {
                         "id": 1,
-                        "pseudonym": "CityHall",
+                        "name": "CityHall",
                         "position": [52.5200, 13.4050]
                     },
                     {
                         "id": 2,
-                        "pseudonym": "MainStation",
+                        "name": "MainStation",
                         "position": [52.5180, 13.4020]
                     }
                 ]

@@ -65,13 +65,11 @@ function App() {
       const request = {
         zones: zones.map((zone) => ({
           id: zone.id,
-          pseudonym: zone.name,
-          price: zone.current_fee || 2.0,
-          position: [zone.lat, zone.lon],
-          maximum_capacity: zone.capacity || 100,
-          current_capacity: Math.floor(
-            (zone.occupancy_rate || 0.5) * (zone.capacity || 100)
-          ),
+          name: zone.name || `Zone ${zone.id}`,
+          current_fee: zone.current_fee || 2.0,
+          position: zone.position,
+          maximum_capacity: zone.maximum_capacity || 100,
+          current_capacity: zone.current_capacity || 0,
           min_fee: 0.5,
           max_fee: 5.0,
           elasticity: -0.4,
@@ -140,15 +138,19 @@ function App() {
         }
       );
 
-      // Update zones with suggested fees from the selected solution
+      // Update zones with new fees from the selected solution
       const selectedSolution = response.data;
       setZones((prevZones) =>
         prevZones.map((zone) => {
           const zoneResult = selectedSolution.zones.find(
-            (zoneItem) => zoneItem.zone_id === zone.id
+            (zoneItem) => zoneItem.id === zone.id
           );
           return zoneResult
-            ? { ...zone, suggested_fee: zoneResult.new_fee }
+            ? { ...zone, 
+                new_fee: zoneResult.new_fee, 
+                predicted_occupancy: zoneResult.predicted_occupancy, 
+                //predicted_revenue: zoneResult.predicted_revenue #TODO: Revenue prediction can be very small???
+              }
             : zone;
         })
       );
@@ -201,6 +203,7 @@ function App() {
         if (typeof content === 'string') {
           const results = JSON.parse(content);
           setOptimizationResponse(results);
+          
           console.log('Loaded optimization results with', results.scenarios?.length || 0, 'scenarios');
           alert(`Loaded optimization results with ${results.scenarios?.length || 0} scenarios!`);
         }

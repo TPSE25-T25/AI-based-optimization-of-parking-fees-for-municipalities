@@ -3,7 +3,6 @@ Unit tests for city and parking lot generator modules.
 """
 
 import pytest
-from decimal import Decimal
 
 from backend.models.city import City, PointOfInterest, ParkingZone
 from backend.services.data.generator.city_generator import ParkingZoneGenerator, CityGenerator
@@ -58,22 +57,22 @@ class TestParkingZoneGenerator:
             assert lon >= lon_range[0]
             assert lon <= lon_range[1]
     
-    def test_generate_random_parking_zones_price_range(self, parking_zone_generator, geo_bounds):
-        """Test that prices are within specified range."""
+    def test_generate_random_parking_zones_current_fee_range(self, parking_zone_generator, geo_bounds):
+        """Test that current_fees are within specified range."""
         lat_range, lon_range = geo_bounds
-        min_price = Decimal('2.0')
-        max_price = Decimal('8.0')
+        min_current_fee = 2.0
+        max_current_fee = 8.0
 
         lots = parking_zone_generator.generate_random_parking_zones(
             count=20,
             lat_range=lat_range,
             lon_range=lon_range,
-            price_range=(min_price, max_price)
+            current_fee_range=(min_current_fee, max_current_fee)
         )
 
         for lot in lots:
-            assert lot.price >= min_price
-            assert lot.price <= max_price
+            assert lot.current_fee >= min_current_fee
+            assert lot.current_fee <= max_current_fee
     
     def test_generate_random_parking_zones_capacity_range(self, parking_zone_generator, geo_bounds):
         """Test that capacities are within specified range."""
@@ -114,7 +113,7 @@ class TestParkingZoneGenerator:
         
         for lot1, lot2 in zip(lots1, lots2):
             assert lot1.position == lot2.position
-            assert lot1.price == lot2.price
+            assert lot1.current_fee == lot2.current_fee
             assert lot1.maximum_capacity == lot2.maximum_capacity
     
     def test_generate_clustered_parking_zones_count(self, parking_zone_generator, geo_bounds):
@@ -169,8 +168,8 @@ class TestParkingZoneGenerator:
     def test_generate_poi_based_parking_zones_count(self, parking_zone_generator):
         """Test POI-based parking lot generation."""
         pois = [
-            PointOfInterest(id=1, pseudonym="Downtown", position=(49.05, 8.45)),
-            PointOfInterest(id=2, pseudonym="Mall", position=(49.03, 8.43))
+            PointOfInterest(id=1, name="Downtown", position=(49.05, 8.45)),
+            PointOfInterest(id=2, name="Mall", position=(49.03, 8.43))
         ]
 
         lots = parking_zone_generator.generate_poi_based_parking_zones(
@@ -183,18 +182,18 @@ class TestParkingZoneGenerator:
     def test_generate_poi_based_parking_zones_pricing(self, parking_zone_generator):
         """Test that POI-based lots have appropriate pricing."""
         pois = [
-            PointOfInterest(id=1, pseudonym="Downtown", position=(49.05, 8.45)),
-            PointOfInterest(id=2, pseudonym="University", position=(49.03, 8.43))
+            PointOfInterest(id=1, name="Downtown", position=(49.05, 8.45)),
+            PointOfInterest(id=2, name="University", position=(49.03, 8.43))
         ]
 
         lots = parking_zone_generator.generate_poi_based_parking_zones(pois=pois, lots_per_poi=2)
 
         # Downtown lots should generally be more expensive than university
-        downtown_lots = [lot for lot in lots if "Downtown" in lot.pseudonym]
-        university_lots = [lot for lot in lots if "University" in lot.pseudonym]
+        downtown_lots = [lot for lot in lots if "Downtown" in lot.name]
+        university_lots = [lot for lot in lots if "University" in lot.name]
 
-        avg_downtown = sum(lot.price for lot in downtown_lots) / len(downtown_lots)
-        avg_university = sum(lot.price for lot in university_lots) / len(university_lots)
+        avg_downtown = sum(lot.current_fee for lot in downtown_lots) / len(downtown_lots)
+        avg_university = sum(lot.current_fee for lot in university_lots) / len(university_lots)
 
         assert avg_downtown > avg_university
     
@@ -207,12 +206,12 @@ class TestParkingZoneGenerator:
     
     def test_generate_poi_based_parking_zones_naming(self, parking_zone_generator):
         """Test that lots are named after their POIs."""
-        pois = [PointOfInterest(id=1, pseudonym="Stadium", position=(49.05, 8.45))]
+        pois = [PointOfInterest(id=1, name="Stadium", position=(49.05, 8.45))]
 
         lots = parking_zone_generator.generate_poi_based_parking_zones(pois=pois, lots_per_poi=2)
 
         for lot in lots:
-            assert "Stadium" in lot.pseudonym
+            assert "Stadium" in lot.name
 
 @pytest.fixture
 def city_generator():
@@ -238,14 +237,14 @@ class TestCityGenerator:
         """Test that generated city has correct attributes."""
         city = city_generator.generate_simple_city(
             city_id=42,
-            pseudonym="TestCity",
+            name="TestCity",
             center_lat=49.0,
             center_lon=8.4,
             size_deg=0.2
         )
 
         assert city.id == 42
-        assert city.pseudonym == "TestCity"
+        assert city.name == "TestCity"
         # Check geographic bounds
         assert city.min_latitude == 48.9
         assert city.max_latitude == 49.1
@@ -309,7 +308,7 @@ class TestCityGenerator:
         """Test that urban city has strategic POIs."""
         city = city_generator.generate_urban_city()
         
-        poi_names = [poi.pseudonym for poi in city.point_of_interests]
+        poi_names = [poi.name for poi in city.point_of_interests]
         
         # Check for key urban features
         assert any("Downtown" in name for name in poi_names)
@@ -317,29 +316,29 @@ class TestCityGenerator:
         assert any("University" in name or "Hospital" in name for name in poi_names)
     
     def test_generate_urban_city_has_varied_pricing(self, city_generator):
-        """Test that urban city has varied parking prices."""
+        """Test that urban city has varied parking current_fees."""
         city = city_generator.generate_urban_city()
         
-        prices = [lot.price for lot in city.parking_zones]
+        current_fees = [lot.current_fee for lot in city.parking_zones]
         
-        # Should have price variation
-        min_price = min(prices)
-        max_price = max(prices)
+        # Should have current_fee variation
+        min_current_fee = min(current_fees)
+        max_current_fee = max(current_fees)
         
-        assert max_price > min_price * Decimal('1.5')  # At least 50% variation
+        assert max_current_fee > min_current_fee * 1.5  # At least 50% variation
     
     def test_generate_urban_city_has_peripheral_parking(self, city_generator):
         """Test that urban city includes peripheral parking."""
         city = city_generator.generate_urban_city()
         
         # Check for peripheral lots (named "Peripheral_*")
-        peripheral_lots = [lot for lot in city.parking_zones if "Peripheral" in lot.pseudonym]
+        peripheral_lots = [lot for lot in city.parking_zones if "Peripheral" in lot.name]
         
         assert len(peripheral_lots) > 0
         
-        # Peripheral lots should have low prices
+        # Peripheral lots should have low current_fees
         for lot in peripheral_lots:
-            assert lot.price < Decimal('3.0')
+            assert lot.current_fee < 3.0
     
     def test_generate_grid_city_structure(self, city_generator):
         """Test grid city generation."""
@@ -354,7 +353,7 @@ class TestCityGenerator:
         city = city_generator.generate_grid_city(grid_size=(3, 3))
         
         for poi in city.point_of_interests:
-            assert "Grid_" in poi.pseudonym
+            assert "Grid_" in poi.name
     
     def test_generate_grid_city_regular_spacing(self, city_generator):
         """Test that grid city has regularly spaced POIs."""

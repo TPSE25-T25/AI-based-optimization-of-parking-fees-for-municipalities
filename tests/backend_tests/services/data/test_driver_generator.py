@@ -3,7 +3,6 @@ Unit tests for driver generator module.
 """
 
 import pytest
-from decimal import Decimal
 
 from backend.models.city import City, PointOfInterest
 from backend.models.driver import Driver
@@ -15,7 +14,7 @@ def test_city():
     """Set up test city with POIs."""
     city = City(
         id=1,
-        pseudonym="TestCity",
+        name="TestCity",
         min_latitude=49.0,
         max_latitude=49.1,
         min_longitude=8.4,
@@ -24,9 +23,9 @@ def test_city():
 
     # Add points of interest (realistic lat/lon coordinates)
     pois = [
-        PointOfInterest(id=1, pseudonym="Downtown", position=(49.05, 8.45)),
-        PointOfInterest(id=2, pseudonym="Mall", position=(49.03, 8.47)),
-        PointOfInterest(id=3, pseudonym="University", position=(49.07, 8.43))
+        PointOfInterest(id=1, name="Downtown", position=(49.05, 8.45)),
+        PointOfInterest(id=2, name="Mall", position=(49.03, 8.47)),
+        PointOfInterest(id=3, name="University", position=(49.07, 8.43))
     ]
 
     for poi in pois:
@@ -83,20 +82,20 @@ class TestDriverGenerator:
         for driver in drivers:
             assert driver.destination in poi_positions
     
-    def test_generate_random_drivers_price_range(self, generator, test_city):
-        """Test that driver max prices are within specified range."""
-        min_price = Decimal('2.0')
-        max_price = Decimal('8.0')
+    def test_generate_random_drivers_current_fee_range(self, generator, test_city):
+        """Test that driver max current_fees are within specified range."""
+        min_current_fee = 2.0
+        max_current_fee = 8.0
         
         drivers = generator.generate_random_drivers(
             count=50,
             city=test_city,
-            price_range=(min_price, max_price)
+            current_fee_range=(min_current_fee, max_current_fee)
         )
         
         for driver in drivers:
-            assert driver.max_parking_price >= min_price
-            assert driver.max_parking_price <= max_price
+            assert driver.max_parking_current_fee >= min_current_fee
+            assert driver.max_parking_current_fee <= max_current_fee
     
     def test_generate_random_drivers_duration_range(self, generator, test_city):
         """Test that parking durations are within specified range."""
@@ -123,12 +122,12 @@ class TestDriverGenerator:
             assert d1.id == d2.id
             assert d1.starting_position == d2.starting_position
             assert d1.destination == d2.destination
-            assert d1.max_parking_price == d2.max_parking_price
+            assert d1.max_parking_current_fee == d2.max_parking_current_fee
             assert d1.desired_parking_time == d2.desired_parking_time
     
     def test_generate_random_drivers_no_pois_raises_error(self, generator):
         """Test that generator raises error when city has no POIs."""
-        empty_city = City(id=2, pseudonym="EmptyCity", min_latitude=49.0, max_latitude=49.1, min_longitude=8.4, max_longitude=8.5)
+        empty_city = City(id=2, name="EmptyCity", min_latitude=49.0, max_latitude=49.1, min_longitude=8.4, max_longitude=8.5)
         
         with pytest.raises(ValueError) as exc_info:
             generator.generate_random_drivers(count=10, city=empty_city)
@@ -191,13 +190,13 @@ class TestDriverGenerator:
     
     def test_generate_clustered_drivers_no_pois_raises_error(self, generator):
         """Test that clustered generation requires POIs."""
-        empty_city = City(id=2, pseudonym="EmptyCity", min_latitude=49.0, max_latitude=49.1, min_longitude=8.4, max_longitude=8.5)
+        empty_city = City(id=2, name="EmptyCity", min_latitude=49.0, max_latitude=49.1, min_longitude=8.4, max_longitude=8.5)
         
         with pytest.raises(ValueError) as exc_info:
             generator.generate_clustered_drivers(
                 count=10,
                 city=empty_city,
-                cluster_centers=[PointOfInterest(id=99, pseudonym="Center", position=(100.0, 100.0))]
+                cluster_centers=[PointOfInterest(id=99, name="Center", position=(100.0, 100.0))]
             )
         
         assert "point of interest" in str(exc_info.value).lower()
@@ -228,21 +227,21 @@ class TestDriverGenerator:
         # Should be majority (around 80% based on implementation)
         assert to_peak > 50
     
-    def test_generate_rush_hour_drivers_price_range(self, generator, test_city):
-        """Test rush hour driver price range."""
-        min_price = Decimal('5.0')
-        max_price = Decimal('15.0')
+    def test_generate_rush_hour_drivers_current_fee_range(self, generator, test_city):
+        """Test rush hour driver current_fee range."""
+        min_current_fee = 5.0
+        max_current_fee = 15.0
         
         drivers = generator.generate_rush_hour_drivers(
             count=50,
             city=test_city,
             peak_destination=test_city.point_of_interests[0],
-            price_range=(min_price, max_price)
+            current_fee_range=(min_current_fee, max_current_fee)
         )
         
         for driver in drivers:
-            assert driver.max_parking_price >= min_price
-            assert driver.max_parking_price <= max_price
+            assert driver.max_parking_current_fee >= min_current_fee
+            assert driver.max_parking_current_fee <= max_current_fee
     
     def test_generate_rush_hour_drivers_longer_durations(self, generator, test_city):
         """Test rush hour drivers have longer parking durations."""
@@ -260,45 +259,45 @@ class TestDriverGenerator:
             assert driver.desired_parking_time >= min_duration
             assert driver.desired_parking_time <= max_duration
     
-    def test_generate_price_sensitive_drivers_count(self, generator, test_city):
-        """Test price-sensitive driver generation count."""
-        drivers = generator.generate_price_sensitive_drivers(
+    def test_generate_current_fee_sensitive_drivers_count(self, generator, test_city):
+        """Test current_fee-sensitive driver generation count."""
+        drivers = generator.generate_current_fee_sensitive_drivers(
             count=40,
             city=test_city
         )
         
         assert len(drivers) == 40
     
-    def test_generate_price_sensitive_drivers_low_prices(self, generator, test_city):
-        """Test that price-sensitive drivers have low price tolerance."""
-        threshold = Decimal('3.0')
+    def test_generate_current_fee_sensitive_drivers_low_current_fees(self, generator, test_city):
+        """Test that current_fee-sensitive drivers have low current_fee tolerance."""
+        threshold = 3.0
         
-        drivers = generator.generate_price_sensitive_drivers(
+        drivers = generator.generate_current_fee_sensitive_drivers(
             count=50,
             city=test_city,
-            low_price_threshold=threshold
+            low_current_fee_threshold=threshold
         )
         
         for driver in drivers:
-            assert driver.max_parking_price <= threshold
-            assert driver.max_parking_price > Decimal('0')
+            assert driver.max_parking_current_fee <= threshold
+            assert driver.max_parking_current_fee > 0
     
-    def test_generate_price_sensitive_drivers_custom_threshold(self, generator, test_city):
-        """Test price-sensitive drivers with custom threshold."""
-        custom_threshold = Decimal('2.5')
+    def test_generate_current_fee_sensitive_drivers_custom_threshold(self, generator, test_city):
+        """Test current_fee-sensitive drivers with custom threshold."""
+        custom_threshold = 2.5
         
-        drivers = generator.generate_price_sensitive_drivers(
+        drivers = generator.generate_current_fee_sensitive_drivers(
             count=30,
             city=test_city,
-            low_price_threshold=custom_threshold
+            low_current_fee_threshold=custom_threshold
         )
         
         for driver in drivers:
-            assert driver.max_parking_price <= custom_threshold
+            assert driver.max_parking_current_fee <= custom_threshold
     
-    def test_generate_price_sensitive_drivers_shorter_durations(self, generator, test_city):
-        """Test price-sensitive drivers typically have shorter durations."""
-        drivers = generator.generate_price_sensitive_drivers(
+    def test_generate_current_fee_sensitive_drivers_shorter_durations(self, generator, test_city):
+        """Test current_fee-sensitive drivers typically have shorter durations."""
+        drivers = generator.generate_current_fee_sensitive_drivers(
             count=50,
             city=test_city,
             parking_duration_range=(30, 120)
@@ -308,12 +307,12 @@ class TestDriverGenerator:
             assert driver.desired_parking_time >= 30
             assert driver.desired_parking_time <= 120
     
-    def test_generate_price_sensitive_drivers_no_pois_raises_error(self, generator):
-        """Test that price-sensitive generation requires POIs."""
-        empty_city = City(id=2, pseudonym="EmptyCity", min_latitude=49.0, max_latitude=49.1, min_longitude=8.4, max_longitude=8.5)
+    def test_generate_current_fee_sensitive_drivers_no_pois_raises_error(self, generator):
+        """Test that current_fee-sensitive generation requires POIs."""
+        empty_city = City(id=2, name="EmptyCity", min_latitude=49.0, max_latitude=49.1, min_longitude=8.4, max_longitude=8.5)
         
         with pytest.raises(ValueError) as exc_info:
-            generator.generate_price_sensitive_drivers(
+            generator.generate_current_fee_sensitive_drivers(
                 count=10,
                 city=empty_city
             )
@@ -346,7 +345,7 @@ class TestDriverGenerator:
             lambda: generator.generate_rush_hour_drivers(
                 count=10, city=test_city, peak_destination=test_city.point_of_interests[0]
             ),
-            lambda: generator.generate_price_sensitive_drivers(
+            lambda: generator.generate_current_fee_sensitive_drivers(
                 count=10, city=test_city
             )
         ]
@@ -358,10 +357,10 @@ class TestDriverGenerator:
                 # Check all required attributes exist and are valid
                 assert isinstance(driver.id, int)
                 assert driver.id > 0
-                assert isinstance(driver.pseudonym, str)
-                assert len(driver.pseudonym) > 0
-                assert isinstance(driver.max_parking_price, Decimal)
-                assert driver.max_parking_price > Decimal('0')
+                assert isinstance(driver.name, str)
+                assert len(driver.name) > 0
+                assert isinstance(driver.max_parking_current_fee, float)
+                assert driver.max_parking_current_fee > 0
                 assert isinstance(driver.starting_position, tuple)
                 assert len(driver.starting_position) == 2
                 assert isinstance(driver.destination, tuple)

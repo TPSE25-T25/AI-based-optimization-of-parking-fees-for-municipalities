@@ -37,7 +37,7 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
         drivers_per_zone_capacity: float = 1.5,
         simulation_runs: int = 1,
         random_seed: int = 42,
-        price_weight: float = 1.0,
+        current_fee_weight: float = 1.0,
         distance_to_lot_weight: float = 0.5,
         walking_distance_weight: float = 1.5,
         availability_weight: float = 0.3
@@ -49,7 +49,7 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
             drivers_per_zone_capacity: Multiplier for driver generation (e.g., 1.5 = 150% of capacity)
             simulation_runs: Number of simulation runs per evaluation (for averaging stochastic results)
             random_seed: Seed for reproducibility
-            price_weight: Driver's price sensitivity
+            current_fee_weight: Driver's current_fee sensitivity
             distance_to_lot_weight: Driver's driving distance sensitivity
             walking_distance_weight: Driver's walking distance sensitivity
             availability_weight: Driver's availability sensitivity
@@ -66,7 +66,7 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
 
         # Create simulation engine
         decision_maker = DriverDecision(
-            price_weight=price_weight,
+            current_fee_weight=current_fee_weight,
             distance_to_lot_weight=distance_to_lot_weight,
             walking_distance_weight=walking_distance_weight,
             availability_weight=availability_weight
@@ -92,29 +92,29 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
         # Generate random driver population
         self.base_drivers = self.adapter.create_drivers_from_request(self.base_city)
 
-        # Store zone IDs for price application
+        # Store zone IDs for current_fee application
         self.zone_ids = [zone.id for zone in request.zones]
 
         print(f"\nSimulation Environment Initialized:")
-        print(f"  City: {self.base_city.pseudonym}")
+        print(f"  City: {self.base_city.name}")
         print(f"  Parking Lots: {len(self.base_city.parking_zones)}")
         print(f"  Total Capacity: {self.base_city.total_parking_capacity()}")
         print(f"  Drivers: {len(self.base_drivers)}")
 
-    def _get_detailed_results(self, prices: np.ndarray, _data: dict) -> dict:
+    def _get_detailed_results(self, current_fees: np.ndarray, _data: dict) -> dict:
         """
-        Get detailed results (occupancy, revenue) for a price vector using simulation.
+        Get detailed results (occupancy, revenue) for a current_fee vector using simulation.
 
         Args:
-            prices: Price vector for all zones
+            current_fees: current_fee vector for all zones
             _data: Dictionary with zone data (unused - agent-based uses cached state)
 
         Returns:
             Dictionary with occupancy and revenue arrays
         """
-        # Create a copy of the city and apply prices
+        # Create a copy of the city and apply current_fees
         city_copy = deepcopy(self.base_city)
-        self.adapter.apply_prices_to_city(city_copy, prices, self.zone_ids)
+        self.adapter.apply_current_fees_to_city(city_copy, current_fees, self.zone_ids)
 
         # Run simulation with driver population
         metrics = self.simulation.run_simulation(
@@ -124,8 +124,8 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
         )
 
         # Extract occupancy and revenue per zone (in correct order)
-        occupancy = np.array([metrics.lot_occupancy_rates.get(zone_id, 0.0) for zone_id in self.zone_ids])
-        revenue = np.array([float(metrics.lot_revenues.get(zone_id, 0.0)) for zone_id in self.zone_ids])
+        occupancy = np.array([metrics.lot_occupancy_rates.get(id, 0.0) for id in self.zone_ids])
+        revenue = np.array([float(metrics.lot_revenues.get(id, 0.0)) for id in self.zone_ids])
 
         return {
             "occupancy": occupancy,
@@ -134,7 +134,7 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
 
     def _simulate_scenario(
         self,
-        prices: np.ndarray,
+        current_fees: np.ndarray,
         request: OptimizationRequest
     ) -> Tuple[float, float, float, float]:
         """
@@ -143,7 +143,7 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
         This method is called by the base class's ParkingProblem._evaluate() during optimization.
 
         Args:
-            prices: Price vector for all zones
+            current_fees: current_fee vector for all zones
             request: Optimization request
 
         Returns:
@@ -153,9 +153,9 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
         all_results = []
 
         for run in range(self.simulation_runs):
-            # Create a copy of the city and apply prices
+            # Create a copy of the city and apply current_fees
             city_copy = deepcopy(self.base_city)
-            self.adapter.apply_prices_to_city(city_copy, prices, self.zone_ids)
+            self.adapter.apply_current_fees_to_city(city_copy, current_fees, self.zone_ids)
 
             # Run simulation with driver population
             metrics = self.simulation.run_simulation(

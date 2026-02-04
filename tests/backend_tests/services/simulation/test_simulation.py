@@ -3,7 +3,6 @@ Unit tests for parking simulation module.
 """
 
 import pytest
-from decimal import Decimal
 
 from backend.models.city import City, PointOfInterest, ParkingZone
 from backend.models.driver import Driver
@@ -13,7 +12,7 @@ from backend.services.simulation.simulation import (
     SimulationMetrics,
     SimulationBatch
 )
-from backend.services.data.driver_generator import DriverGenerator
+from backend.services.data.generator.driver_generator import DriverGenerator
 
 
 @pytest.fixture
@@ -27,8 +26,8 @@ def test_driver():
     """Set up test driver."""
     return Driver(
         id=1,
-        pseudonym="TestDriver",
-        max_parking_price=Decimal('5.00'),
+        name="TestDriver",
+        max_parking_current_fee=5.00,
         starting_position=(100.0, 100.0),
         destination=(500.0, 500.0),
         desired_parking_time=120
@@ -40,8 +39,8 @@ def lot1():
     """Set up first parking lot."""
     return ParkingZone(
         id=1,
-        pseudonym="Lot1",
-        price=Decimal('3.00'),
+        name="Lot1",
+        current_fee=3.00,
         position=(200.0, 200.0),
         maximum_capacity=100,
         current_capacity=50
@@ -53,8 +52,8 @@ def lot2():
     """Set up second parking lot."""
     return ParkingZone(
         id=2,
-        pseudonym="Lot2",
-        price=Decimal('4.00'),
+        name="Lot2",
+        current_fee=4.00,
         position=(480.0, 480.0),  # Closer to destination
         maximum_capacity=100,
         current_capacity=20
@@ -81,8 +80,8 @@ class TestDriverDecision:
         """Test that driver rejects unaffordable lots."""
         expensive_lot = ParkingZone(
             id=3,
-            pseudonym="Expensive",
-            price=Decimal('10.00'),  # Too expensive
+            name="Expensive",
+            current_fee=10.00,  # Too expensive
             position=(300.0, 300.0),
             maximum_capacity=100,
             current_capacity=0
@@ -97,9 +96,9 @@ class TestDriverDecision:
         assert result is None
     
     def test_closer_lot_preferred(self, test_driver, lot1, lot2):
-        """Test that closer lot to destination is preferred when prices similar."""
+        """Test that closer lot to destination is preferred when current_fees similar."""
         decision = DriverDecision(
-            price_weight=0.1,
+            current_fee_weight=0.1,
             walking_distance_weight=10.0  # Heavy weight on proximity
         )
         
@@ -115,7 +114,7 @@ def test_city():
     """Set up test city with parking lots and POI."""
     city = City(
         id=1,
-        pseudonym="TestCity",
+        name="TestCity",
         min_latitude=49.0,
         max_latitude=49.1,
         min_longitude=8.4,
@@ -125,7 +124,7 @@ def test_city():
     # Add POI
     poi = PointOfInterest(
         id=1,
-        pseudonym="Downtown",
+        name="Downtown",
         position=(49.05, 8.45)
     )
     city.add_point_of_interest(poi)
@@ -133,8 +132,8 @@ def test_city():
     # Add parking lots
     lot1 = ParkingZone(
         id=1,
-        pseudonym="Lot1",
-        price=Decimal('3.00'),
+        name="Lot1",
+        current_fee=3.00,
         position=(49.048, 8.448),
         maximum_capacity=100,
         current_capacity=0
@@ -142,8 +141,8 @@ def test_city():
 
     lot2 = ParkingZone(
         id=2,
-        pseudonym="Lot2",
-        price=Decimal('5.00'),
+        name="Lot2",
+        current_fee=5.00,
         position=(49.052, 8.452),
         maximum_capacity=50,
         current_capacity=0
@@ -162,8 +161,8 @@ def test_drivers(test_city):
     return [
         Driver(
             id=i,
-            pseudonym=f"Driver{i}",
-            max_parking_price=Decimal('6.00'),
+            name=f"Driver{i}",
+            max_parking_current_fee=6.00,
             starting_position=(100.0 + i * 10, 100.0),
             destination=poi.position,
             desired_parking_time=120
@@ -207,8 +206,8 @@ class TestParkingSimulation:
         many_drivers = [
             Driver(
                 id=i,
-                pseudonym=f"Driver{i}",
-                max_parking_price=Decimal('10.00'),
+                name=f"Driver{i}",
+                max_parking_current_fee=10.00,
                 starting_position=(100.0, 100.0),
                 destination=poi.position,
                 desired_parking_time=60
@@ -227,11 +226,11 @@ class TestParkingSimulation:
         """Test revenue calculation."""
         metrics = simulation.run_simulation(test_city, test_drivers)
         
-        assert isinstance(metrics.total_revenue, Decimal)
-        assert metrics.total_revenue >= Decimal(0)
+        assert isinstance(metrics.total_revenue, float)
+        assert metrics.total_revenue >= 0
         
         if metrics.total_parked > 0:
-            assert metrics.total_revenue > Decimal(0)
+            assert metrics.total_revenue > 0
     
     def test_occupancy_metrics(self, simulation, test_city, test_drivers):
         """Test occupancy calculations."""
@@ -241,14 +240,14 @@ class TestParkingSimulation:
         assert metrics.overall_occupancy_rate <= 1.0
         assert metrics.occupancy_variance >= 0.0
     
-    def test_evaluate_price_configuration(self, simulation, test_city, test_drivers):
-        """Test price configuration evaluation."""
-        price_vector = [Decimal('4.00'), Decimal('4.00')]
+    def test_evaluate_current_fee_configuration(self, simulation, test_city, test_drivers):
+        """Test current_fee configuration evaluation."""
+        current_fee_vector = [4.00, 4.00]
         
-        objectives = simulation.evaluate_price_configuration(
+        objectives = simulation.evaluate_current_fee_configuration(
             test_city,
             test_drivers,
-            price_vector,
+            current_fee_vector,
             objectives=['revenue', 'occupancy_variance']
         )
         
@@ -257,15 +256,15 @@ class TestParkingSimulation:
         assert isinstance(objectives['revenue'], float)
         assert isinstance(objectives['occupancy_variance'], float)
     
-    def test_evaluate_price_configuration_wrong_length(self, simulation, test_city, test_drivers):
-        """Test error handling for wrong price vector length."""
-        price_vector = [Decimal('4.00')]  # Only 1 price for 2 lots
+    def test_evaluate_current_fee_configuration_wrong_length(self, simulation, test_city, test_drivers):
+        """Test error handling for wrong current_fee vector length."""
+        current_fee_vector = [4.00]  # Only 1 current_fee for 2 lots
         
         with pytest.raises(ValueError):
-            simulation.evaluate_price_configuration(
+            simulation.evaluate_current_fee_configuration(
                 test_city,
                 test_drivers,
-                price_vector
+                current_fee_vector
             )
 
 
@@ -276,20 +275,20 @@ def batch_city():
     """Set up city for batch simulation tests."""
     city = City(
         id=1,
-        pseudonym="TestCity",
+        name="TestCity",
         min_latitude=49.0,
         max_latitude=49.1,
         min_longitude=8.4,
         max_longitude=8.5
     )
 
-    poi = PointOfInterest(id=1, pseudonym="Downtown", position=(49.05, 8.45))
+    poi = PointOfInterest(id=1, name="Downtown", position=(49.05, 8.45))
     city.add_point_of_interest(poi)
 
     lot = ParkingZone(
         id=1,
-        pseudonym="Lot1",
-        price=Decimal('3.00'),
+        name="Lot1",
+        current_fee=3.00,
         position=(49.048, 8.448),
         maximum_capacity=100,
         current_capacity=0
