@@ -15,14 +15,15 @@ from shapely.geometry import Point
 from typing import List, Dict, Optional, Tuple
 from decimal import Decimal
 from backend.services.optimizer.schemas.optimization_schema import ParkingZoneInput
-from backend.models.city import PointOfInterest
+from backend.models.city import PointOfInterest, City, ParkingZone
+from backend.services.data.parking_data_loader import ParkingDataLoader
 import urllib3
 
 # Disable SSL warnings (OSM/Network specific)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
-class OSMnxLoader:
+class OSMnxLoader(ParkingDataLoader):
     """
     Generic Data Ingestion Service for any city using OpenStreetMap.
 
@@ -91,9 +92,10 @@ class OSMnxLoader:
 
         return epsg
 
-    def load_zones(self, limit: int = 200) -> List[ParkingZoneInput]:
+    def load_zones_for_optimization(self, limit: int = 1000) -> List[ParkingZoneInput]:
         """
-        Orchestrator Method: Loads parking zones via OSM and assigns realistic prices.
+        Load parking zones in optimization schema format.
+        Compatible with the optimization pipeline.
 
         Args:
             limit: Maximum number of parking zones to return (best zones by priority/area)
@@ -108,50 +110,68 @@ class OSMnxLoader:
         print(f"   UTM Zone: EPSG:{self.utm_epsg}")
         print("   (This might take 10-20 seconds, please wait...)")
 
-        return self._load_from_osm(limit)
+        raw_zones = self._load_from_osm(limit)
+        return self.cluster_zones(raw_zones)
 
-    def cluster_zones(self, raw_zones) -> List[ParkingZoneInput]:     
-        if not raw_zones:
-            return []
-
-        # 2. Prepare data for K-Means (coordinate matrix)
-        # Create an array [[lat, lon], [lat, lon], ...]
-        coords = np.array([[z.position[0], z.position[1]] for z in raw_zones])
-
-        # Safety check: If all coordinates are 0 (error in OSM loader),
-        # use a fallback to prevent the code from crashing.
-        if np.all(coords == 0):
-            print("⚠️ Warning: No geolocation found. Falling back to simple indexing.")
-            coords = np.arange(len(raw_zones)).reshape(-1, 1)
-
-        # 3. K-Means Configuration
-        # We don't want huge clusters. We say: On average 15 parking spots per cluster.
-        # This ensures fine-grained, realistic price zones.
-        n_clusters = max(1, int(len(raw_zones) / 15))
+    def load_city(self, limit: int = 1000) -> City:
+        """
+        Load parking data and create a City model with ParkingZone objects.
         
-        print(f"🧩 Running K-Means Algorithm...")
-        print(f"   Input: {len(raw_zones)} Zones")
-        print(f"   Target: {n_clusters} Spatial Clusters")
-
-        # THE ALGORITHM
-        kmeans = KMeans(
-            n_clusters=n_clusters,
-            random_state=42,       # Fixed seed for reproducibility
-            n_init=10              # Algorithm runs 10x, takes the best result
+        Args:
+            limit: Maximum number of parking sites/zones to load
+            
+        Returns:
+            City model with parking zones and metadata
+        """
+        # Load parking zones for optimization
+        parking_zones = self.load_zones_for_optimization(limit)
+        
+        if not parking_zones:
+            raise ValueError(f"No parking zones found for '{self.place_name}'")
+        
+        # Calculate geographic bounds from parking zones
+        lats = [zone.position[0] for zone in parking_zones]
+        lons = [zone.position[1] for zone in parking_zones]
+        
+        min_lat = min(lats)
+        max_lat = max(lats)
+        min_lon = min(lons)
+        max_lon = max(lons)
+        
+        # Add small padding to bounds
+        lat_padding = (max_lat - min_lat) * 0.1 or 0.01
+        lon_padding = (max_lon - min_lon) * 0.1 or 0.01
+        
+        min_lat -= lat_padding
+        max_lat += lat_padding
+        min_lon -= lon_padding
+        max_lon += lon_padding
+        
+        # Load POIs
+        pois = self.load_pois(limit=50)
+        
+        # Create City model
+        city_pseudonym = self.place_name.replace(", ", "_").replace(" ", "_")
+        city = City(
+            id=1,
+            pseudonym=city_pseudonym,
+            min_latitude=min_lat,
+            max_latitude=max_lat,
+            min_longitude=min_lon,
+            max_longitude=max_lon,
+            parking_zones=parking_zones,
+            point_of_interests=pois
         )
+        
+        print(f"✅ City model created: {city.pseudonym}")
+        print(f"   Bounds: ({min_lat:.4f}, {min_lon:.4f}) to ({max_lat:.4f}, {max_lon:.4f})")
+        print(f"   Parking zones: {len(city.parking_zones)}")
+        print(f"   Points of Interest: {len(city.point_of_interests)}")
+        print(f"   Total capacity: {city.total_parking_capacity()} spots")
+        print(f"   Occupancy: {city.city_occupancy_rate()*100:.1f}%")
+        
+        return city
 
-        # The real clustering happens here:
-        kmeans.fit(coords)
-
-        # 4. Results
-        # Note: Clustering is computed for future use (visualization, grouping)
-        # but not currently stored in ParkingZoneInput objects.
-        # The cluster labels can be accessed via kmeans.labels_ if needed later.
-
-        print(f"✅ Clustering complete. {n_clusters} spatial clusters identified.")
-        print(f"   Complexity reduction factor: {len(raw_zones)/n_clusters:.1f}x")
-        return raw_zones
-    
     def load_pois(self, limit: int = 50) -> List[PointOfInterest]:
         """
         Load Points of Interest (POIs) from OpenStreetMap for driver destinations.
@@ -592,75 +612,6 @@ class OSMnxLoader:
             optimized_zones: List of OptimizedZoneResult objects
             filename: Output CSV filename
         """
-        if not self.zone_lookup:
-            print("❌ No zones loaded. Cannot export results.")
-            return
-
-        data = []
-        opt_dict = {z.zone_id: z for z in optimized_zones}
-
-        for zid, zone in self.zone_lookup.items():
-            g = self.gdf[self.gdf.zone_id == zid]
-            if g.empty:
-                continue
-
-            occupancy_rate_old = zone.current_capacity / zone.maximum_capacity if zone.maximum_capacity > 0 else 0.0
-            base = {
-                "zone_id": zid,
-                "name": zone.pseudonym,
-                "capacity": zone.maximum_capacity,
-                "lat": g.geometry.y.values[0],
-                "lon": g.geometry.x.values[0],
-                "type": "Short-Term" if zone.short_term_share > 0.5 else "Commuter",
-                "price_old": float(zone.price),
-                "occupancy_old": occupancy_rate_old,
-                "revenue_old": float(zone.price) * zone.maximum_capacity * occupancy_rate_old
-            }
-
-            if zid in opt_dict:
-                opt = opt_dict[zid]
-                # Round pricing to 0.50 steps
-                new_p = round(opt.new_fee * 2) / 2
-
-                base.update({
-                    "price_new": new_p,
-                    "occupancy_new": round(opt.predicted_occupancy, 2),
-                    "revenue_new": round(opt.predicted_revenue, 2),
-                    "delta_price": round(new_p - float(zone.price), 2),
-                    "delta_revenue": round(opt.predicted_revenue - base["revenue_old"], 2),
-                    "delta_occupancy": round(opt.predicted_occupancy - occupancy_rate_old, 2)
-                })
-
-            data.append(base)
-
-        pd.DataFrame(data).to_csv(filename, index=False)
-        print(f"📊 CSV exported successfully: {filename}")
-
-
-
-# Convenience function for quick setup
-def create_city_loader(
-    city_name: str,
-    center_lat: float,
-    center_lon: float,
-    tariffs: Optional[Dict[str, float]] = None
-) -> OSMnxLoader:
-    """
-    Quick factory function to create a city loader.
-
-    Args:
-        city_name: Name for OSM query (e.g., "Munich, Germany")
-        center_lat: Center latitude
-        center_lon: Center longitude
-        tariffs: Optional tariff database
-
-    Returns:
-        Configured OSMnxParkingLoader instance
-    """
-    return OSMnxLoader(
-        place_name=city_name,
-        center_coords=(center_lat, center_lon),
-        tariff_database=tariffs
-    )
-    
-    
+        # Get original zones from zone_lookup
+        original_zones = list(self.zone_lookup.values())
+        super().export_results_to_csv(original_zones, optimized_zones, filename)

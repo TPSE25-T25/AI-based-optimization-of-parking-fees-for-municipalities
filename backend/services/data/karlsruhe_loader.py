@@ -1,21 +1,25 @@
 """
 Karlsruhe-specific parking data loader.
-Uses K-Means Clustering to group parking zones spatially.
+Supports loading from either OSMnx (OpenStreetMap) or MobiData BW API.
 """
 
-from typing import List
+from typing import List, Literal
 
+from backend.models.city import City
 from backend.services.optimizer.schemas.optimization_schema import ParkingZoneInput
+from backend.services.data.parking_data_loader import ParkingDataLoader
 from backend.services.data.osmnx_loader import OSMnxLoader
+from backend.services.api.mobidata_api import MobiDataLoader
 
 
-class KarlsruheLoader(OSMnxLoader):
+class KarlsruheLoader(ParkingDataLoader):
     """
     Data Ingestion Service for Karlsruhe.
     
     Features:
-    - Real-world Tariff Injection
-    - Spatial Clustering via K-Means (Scikit-Learn)
+    - Can load from OSMnx (OpenStreetMap) or MobiData BW API
+    - Real-world Tariff Injection (for OSMnx)
+    - Automatic Spatial Clustering via K-Means
     """
 
     # --- REAL WORLD TARIFF DATABASE (Status 2025) ---
@@ -31,20 +35,67 @@ class KarlsruheLoader(OSMnxLoader):
         "landratsamt": 1.50, "tivoli": 1.50, "zoo": 1.50
     }
 
-    def __init__(self):
-        super().__init__(
-            place_name="Karlsruhe, Germany",
-            center_coords=(49.0134, 8.4044),
-            tariff_database=self.KARLSRUHE_TARIFFS,
-            default_elasticity=-0.4
-        )
+    # Karlsruhe coordinates
+    CENTER_LAT = 49.0134
+    CENTER_LON = 8.4044
 
-    def load_zones(self, limit: int = 200) -> List[ParkingZoneInput]:
+    def __init__(self, source: Literal["osmnx", "mobidata"] = "osmnx"):
         """
-        Loads zones and applies High-Quality Spatial Clustering (K-Means).
+        Initialize Karlsruhe loader with specified data source.
+        
+        Args:
+            source: Data source to use - "osmnx" for OpenStreetMap or "mobidata" for MobiData BW API
         """
-        raw_zones = super().load_zones(limit)
-        return super().cluster_zones(raw_zones)
+        self.source = source
+        
+        if source == "osmnx":
+            self.loader = OSMnxLoader(
+                place_name="Karlsruhe, Germany",
+                center_coords=(self.CENTER_LAT, self.CENTER_LON),
+                tariff_database=self.KARLSRUHE_TARIFFS,
+                default_elasticity=-0.4
+            )
+        elif source == "mobidata":
+            self.loader = MobiDataLoader(
+                city_name="Karlsruhe",
+                center_coords=(self.CENTER_LAT, self.CENTER_LON),
+                search_radius=10000,  # 12km radius
+                default_price=2.0,
+                default_elasticity=-0.4
+            )
+        else:
+            raise ValueError(f"Invalid source: {source}. Must be 'osmnx' or 'mobidata'")
+
+    def load_zones_for_optimization(self, limit: int = 1000) -> List[ParkingZoneInput]:
+        """
+        Loads zones for optimization from the configured source.
+        
+        Args:
+            limit: Maximum number of zones to load
+            
+        Returns:
+            List of ParkingZoneInput objects ready for optimization
+        """
+        return self.loader.load_zones_for_optimization(limit)
+    
+    def load_city(self, limit: int = 1000) -> City:
+        """
+        Loads the city with parking zones and POIs from the configured source.
+        
+        Args:
+            limit: Maximum number of parking sites/zones to load
+            
+        Returns:
+            City model with parking zones and metadata
+        """
+        return self.loader.load_city(limit)
 
     def export_results_for_superset(self, optimized_zones: list, filename: str = "karlsruhe_analytics.csv"):
-        self.export_results_to_csv(optimized_zones, filename)
+        """
+        Export optimization results to CSV for analysis.
+        
+        Args:
+            optimized_zones: List of optimized zone results
+            filename: Output CSV filename
+        """
+        self.loader.export_results_to_csv(optimized_zones, filename)

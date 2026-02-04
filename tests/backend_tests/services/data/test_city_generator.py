@@ -6,7 +6,7 @@ import pytest
 from decimal import Decimal
 
 from backend.models.city import City, PointOfInterest, ParkingZone
-from backend.services.data.city_generator import ParkingZoneGenerator, CityGenerator
+from backend.services.data.generator.city_generator import ParkingZoneGenerator, CityGenerator
 
 
 @pytest.fixture
@@ -379,55 +379,6 @@ class TestCityGenerator:
                 # Allow 20% variation
                 assert spacing > avg_spacing * 0.8
                 assert spacing < avg_spacing * 1.2
-    
-    def test_generate_streets_for_city(self, city_generator):
-        """Test street generation for a city."""
-        city = city_generator.generate_simple_city(num_parking_zones=10)
-        
-        initial_streets = len(city.streets)
-        city_generator.generate_streets_for_city(
-            city,
-            connection_probability=0.5
-        )
-        
-        # Should have added some streets
-        assert len(city.streets) > initial_streets
-    
-    def test_generate_streets_connects_nearby_lots(self, city_generator):
-        """Test that streets connect nearby parking lots."""
-        city = city_generator.generate_simple_city(num_parking_zones=5)
-        
-        city_generator.generate_streets_for_city(
-            city,
-            connection_probability=1.0  # Always connect if close enough
-        )
-        
-        # All streets should connect existing parking lots
-        for street in city.streets:
-            assert street.from_parking_zone_id is not None
-            assert street.to_parking_zone_id is not None
-            
-            # IDs should be valid
-            lot_ids = [lot.id for lot in city.parking_zones]
-            assert street.from_parking_zone_id in lot_ids
-            assert street.to_parking_zone_id in lot_ids
-    
-    def test_generate_streets_speed_limit_range(self, city_generator):
-        """Test that generated streets have speeds in specified range."""
-        city = city_generator.generate_simple_city(num_parking_zones=8)
-        
-        min_speed = 2.0
-        max_speed = 5.0
-        
-        city_generator.generate_streets_for_city(
-            city,
-            connection_probability=0.8,
-            speed_limit_range=(min_speed, max_speed)
-        )
-        
-        for street in city.streets:
-            assert street.speed_limit >= min_speed
-            assert street.speed_limit <= max_speed
     
     def test_different_generators_produce_different_cities(self):
         """Test that unseeded generators produce different results."""

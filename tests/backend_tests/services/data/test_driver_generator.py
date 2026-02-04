@@ -7,7 +7,7 @@ from decimal import Decimal
 
 from backend.models.city import City, PointOfInterest
 from backend.models.driver import Driver
-from backend.services.data.driver_generator import DriverGenerator
+from backend.services.data.generator.driver_generator import DriverGenerator
 
 
 @pytest.fixture

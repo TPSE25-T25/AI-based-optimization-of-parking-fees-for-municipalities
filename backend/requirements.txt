@@ -12,3 +12,4 @@ geopandas
 shapely
 matplotlib
 scikit-learn
+requests

@@ -1,11 +1,11 @@
 """
-Unit tests for City, Street, and PointOfInterest models
+Unit tests for City and PointOfInterest models
 """
 
 import pytest
 from decimal import Decimal
 from pydantic import ValidationError
-from backend.models.city import City, Street, PointOfInterest, ParkingZone
+from backend.models.city import City, PointOfInterest, ParkingZone
 
 
 class TestPointOfInterest:
@@ -56,97 +56,6 @@ class TestPointOfInterest:
         assert distance == 0.0
 
 
-class TestStreet:
-    """Unit tests for Street model"""
-    
-    def test_create_street_success(self):
-        """Test creating a valid street"""
-        street = Street(
-            id=1,
-            pseudonym="MainStreet_A_B",
-            from_position=(49.01, 8.42),
-            to_position=(49.03, 8.445),
-            speed_limit=2.0
-        )
-
-        assert street.id == 1
-        assert street.pseudonym == "MainStreet_A_B"
-        assert street.from_position == (49.01, 8.42)
-        assert street.to_position == (49.03, 8.445)
-        assert street.speed_limit == 2.0
-    
-    def test_create_street_with_parking_zones(self):
-        """Test creating a street with parking lot connections"""
-        street = Street(
-            id=1,
-            pseudonym="ConnectorStreet",
-            from_position=(0.0, 0.0),
-            to_position=(49.01, 8.41),
-            from_parking_zone_id=1,
-            to_parking_zone_id=2,
-            speed_limit=5.0
-        )
-        
-        assert street.from_parking_zone_id == 1
-        assert street.to_parking_zone_id == 2
-    
-    def test_street_speed_limit_validation(self):
-        """Test that speed limit must be positive"""
-        with pytest.raises(ValidationError):
-            Street(
-                id=1,
-                pseudonym="InvalidStreet",
-                from_position=(0.0, 0.0),
-                to_position=(49.01, 8.41),
-                speed_limit=0.0  # Invalid: must be > 0
-            )
-        
-        with pytest.raises(ValidationError):
-            Street(
-                id=1,
-                pseudonym="InvalidStreet",
-                from_position=(0.0, 0.0),
-                to_position=(49.01, 8.41),
-                speed_limit=-1.0  # Invalid: must be > 0
-            )
-    
-    def test_street_length_calculation(self):
-        """Test street length calculation"""
-        street = Street(
-            id=1,
-            pseudonym="TestStreet",
-            from_position=(0.0, 0.0),
-            to_position=(3.0, 4.0),
-            speed_limit=1.0
-        )
-        
-        # Should be 5 (3-4-5 triangle)
-        assert street.length() == 5.0
-    
-    def test_street_travel_cost_calculation(self):
-        """Test travel cost calculation"""
-        street = Street(
-            id=1,
-            pseudonym="TestStreet",
-            from_position=(0.0, 0.0),
-            to_position=(10.0, 0.0),  # Length = 10
-            speed_limit=2.0
-        )
-        
-        # Travel cost = length / speed = 10 / 2 = 5
-        assert street.travel_cost() == 5.0
-    
-    def test_street_pseudonym_validation(self):
-        """Test that pseudonym cannot be empty"""
-        with pytest.raises(ValidationError):
-            Street(
-                id=1,
-                pseudonym="",
-                from_position=(0.0, 0.0),
-                to_position=(49.01, 8.41),
-                speed_limit=1.0
-            )
-
 
 class TestCity:
     """Unit tests for City model"""
@@ -172,17 +81,7 @@ class TestCity:
             position=(49.025, 8.425)
         )
 
-    @pytest.fixture
-    def sample_street(self):
-        """Fixture for a sample street"""
-        return Street(
-            id=1,
-            pseudonym="MainStreet",
-            from_position=(49.01, 8.41),
-            to_position=(49.02, 8.42),
-            speed_limit=2.0
-        )
-    
+
     def test_create_city_success(self):
         """Test creating a valid city"""
         city = City(
@@ -202,7 +101,6 @@ class TestCity:
         assert city.max_longitude == 8.5
         assert city.parking_zones == []
         assert city.point_of_interests == []
-        assert city.streets == []
     
     def test_city_bounds_validation_inverted(self):
         """Test that min bounds must be less than max bounds"""
@@ -248,7 +146,7 @@ class TestCity:
                 max_longitude=8.4  # Invalid: equal
             )
     
-    def test_city_with_components(self, sample_parking_zone, sample_poi, sample_street):
+    def test_city_with_components(self, sample_parking_zone, sample_poi):
         """Test creating a city with all components"""
         city = City(
             id=1,
@@ -258,13 +156,11 @@ class TestCity:
             min_longitude=8.4,
             max_longitude=8.5,
             parking_zones=[sample_parking_zone],
-            point_of_interests=[sample_poi],
-            streets=[sample_street]
+            point_of_interests=[sample_poi]
         )
         
         assert len(city.parking_zones) == 1
         assert len(city.point_of_interests) == 1
-        assert len(city.streets) == 1
     
     def test_add_parking_zone_success(self, sample_parking_zone):
         """Test adding a parking lot to the city"""
@@ -388,68 +284,9 @@ class TestCity:
         with pytest.raises(ValueError, match="already exists"):
             city.add_point_of_interest(duplicate_poi)
     
-    def test_add_street_success(self, sample_street):
-        """Test adding a street to the city"""
-        city = City(
-            id=1,
-            pseudonym="TestCity",
-            min_latitude=49.0,
-            max_latitude=49.1,
-            min_longitude=8.4,
-            max_longitude=8.5
-        )
-        
-        city.add_street(sample_street)
-        
-        assert len(city.streets) == 1
-        assert city.streets[0].id == 1
-    
-    def test_add_street_outside_bounds(self):
-        """Test that street outside geographic bounds raises error"""
-        city = City(
-            id=1,
-            pseudonym="TestCity",
-            min_latitude=49.0,
-            max_latitude=49.01,
-            min_longitude=8.4,
-            max_longitude=8.41
-        )
 
-        invalid_street = Street(
-            id=1,
-            pseudonym="OutOfBounds",
-            from_position=(50.0, 10.0),  # Outside geographic bounds
-            to_position=(51.0, 11.0),  # Outside geographic bounds
-            speed_limit=2.0
-        )
-        
-        with pytest.raises(ValueError, match="outside city bounds"):
-            city.add_street(invalid_street)
-    
-    def test_add_street_duplicate_id(self, sample_street):
-        """Test that duplicate street ID raises error"""
-        city = City(
-            id=1,
-            pseudonym="TestCity",
-            min_latitude=49.0,
-            max_latitude=49.1,
-            min_longitude=8.4,
-            max_longitude=8.5
-        )
-        
-        city.add_street(sample_street)
-        
-        duplicate_street = Street(
-            id=1,  # Same ID
-            pseudonym="DuplicateStreet",
-            from_position=(49.03, 8.43),
-            to_position=(49.04, 8.44),
-            speed_limit=3.0
-        )
-        
-        with pytest.raises(ValueError, match="already exists"):
-            city.add_street(duplicate_street)
-    
+
+
     def test_get_parking_zone_by_id_found(self, sample_parking_zone):
         """Test retrieving parking lot by ID"""
         city = City(
@@ -762,100 +599,8 @@ class TestCity:
         
         assert len(available_lots) == 0
     
-    def test_get_streets_from_parking_zone(self):
-        """Test getting streets that originate from a parking lot"""
-        city = City(
-            id=1,
-            pseudonym="TestCity",
-            min_latitude=49.0,
-            max_latitude=49.1,
-            min_longitude=8.4,
-            max_longitude=8.5,
-            streets=[
-                Street(
-                    id=1,
-                    pseudonym="Street1",
-                    from_position=(49.01, 8.41),
-                    to_position=(49.02, 8.42),
-                    from_parking_zone_id=1,
-                    to_parking_zone_id=2,
-                    speed_limit=2.0
-                ),
-                Street(
-                    id=2,
-                    pseudonym="Street2",
-                    from_position=(49.01, 8.41),
-                    to_position=(49.03, 8.43),
-                    from_parking_zone_id=1,
-                    to_parking_zone_id=3,
-                    speed_limit=2.5
-                ),
-                Street(
-                    id=3,
-                    pseudonym="Street3",
-                    from_position=(49.02, 8.42),
-                    to_position=(49.03, 8.43),
-                    from_parking_zone_id=2,
-                    to_parking_zone_id=3,
-                    speed_limit=3.0
-                )
-            ]
-        )
-        
-        streets_from_lot_1 = city.get_streets_from_parking_zone(1)
-        
-        assert len(streets_from_lot_1) == 2
-        pseudonyms = [street.pseudonym for street in streets_from_lot_1]
-        assert "Street1" in pseudonyms
-        assert "Street2" in pseudonyms
-    
-    def test_get_streets_to_parking_zone(self):
-        """Test getting streets that lead to a parking lot"""
-        city = City(
-            id=1,
-            pseudonym="TestCity",
-            min_latitude=49.0,
-            max_latitude=49.1,
-            min_longitude=8.4,
-            max_longitude=8.5,
-            streets=[
-                Street(
-                    id=1,
-                    pseudonym="Street1",
-                    from_position=(49.01, 8.41),
-                    to_position=(49.02, 8.42),
-                    from_parking_zone_id=1,
-                    to_parking_zone_id=3,
-                    speed_limit=2.0
-                ),
-                Street(
-                    id=2,
-                    pseudonym="Street2",
-                    from_position=(49.015, 8.415),
-                    to_position=(49.03, 8.43),
-                    from_parking_zone_id=2,
-                    to_parking_zone_id=3,
-                    speed_limit=2.5
-                ),
-                Street(
-                    id=3,
-                    pseudonym="Street3",
-                    from_position=(49.02, 8.42),
-                    to_position=(49.04, 8.44),
-                    from_parking_zone_id=3,
-                    to_parking_zone_id=4,
-                    speed_limit=3.0
-                )
-            ]
-        )
-        
-        streets_to_lot_3 = city.get_streets_to_parking_zone(3)
-        
-        assert len(streets_to_lot_3) == 2
-        pseudonyms = [street.pseudonym for street in streets_to_lot_3]
-        assert "Street1" in pseudonyms
-        assert "Street2" in pseudonyms
-    
+
+
     def test_parking_zone_position_validation_at_creation(self):
         """Test that parking lot positions are validated during city creation"""
         with pytest.raises(ValidationError, match="outside city bounds"):
@@ -942,25 +687,10 @@ class TestCity:
                     position=(49.05 + i*0.01, 8.45 + i*0.01)
                 )
             )
-
-        # Add streets
-        for i in range(2):
-            city.add_street(
-                Street(
-                    id=i+1,
-                    pseudonym=f"Street{i+1}",
-                    from_position=(49.01 + i*0.01, 8.41 + i*0.01),
-                    to_position=(49.02 + i*0.01, 8.42 + i*0.01),
-                    from_parking_zone_id=i+1,
-                    to_parking_zone_id=i+2,
-                    speed_limit=2.0
-                )
-            )
         
         # Verify city state
         assert len(city.parking_zones) == 3
         assert len(city.point_of_interests) == 2
-        assert len(city.streets) == 2
         assert city.total_parking_capacity() == 300
         assert city.total_occupied_spots() == 60  # 0 + 20 + 40
         assert city.total_available_spots() == 240

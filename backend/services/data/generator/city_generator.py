@@ -7,7 +7,7 @@ import math
 from typing import List, Tuple, Optional
 from decimal import Decimal
 
-from backend.models.city import City, PointOfInterest, Street, ParkingZone
+from backend.models.city import City, PointOfInterest, ParkingZone
 
 
 class ParkingZoneGenerator:
@@ -463,44 +463,3 @@ class CityGenerator:
             city.add_parking_zone(lot)
 
         return city
-    
-    def generate_streets_for_city(
-        self,
-        city: City,
-        connection_probability: float = 0.3,
-        speed_limit_range: Tuple[float, float] = (30.0, 60.0),
-        max_distance_deg: float = 0.05
-    ) -> None:
-        """
-        Generate streets connecting parking lots in a city.
-
-        Args:
-            city: City to add streets to
-            connection_probability: Probability of creating a connection between nearby lots
-            speed_limit_range: (min, max) speed limit in km/h
-            max_distance_deg: Maximum connection distance in degrees
-        """
-        lots = city.parking_zones
-        street_id = 1
-
-        for i, lot1 in enumerate(lots):
-            for lot2 in lots[i+1:]:
-                # Calculate distance
-                distance = lot1.distance_to_point(lot2.position)
-
-                # Connect if close enough and random chance
-                if distance < max_distance_deg and random.random() < connection_probability:
-                    speed = random.uniform(speed_limit_range[0], speed_limit_range[1])
-
-                    street = Street(
-                        id=street_id,
-                        pseudonym=f"Street_{lot1.id}_to_{lot2.id}",
-                        from_position=lot1.position,
-                        to_position=lot2.position,
-                        from_parking_zone_id=lot1.id,
-                        to_parking_zone_id=lot2.id,
-                        speed_limit=speed
-                    )
-
-                    city.add_street(street)
-                    street_id += 1

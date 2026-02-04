@@ -1,5 +1,5 @@
 """
-City and Street models for parking simulation
+City models for parking simulation
 """
 
 from decimal import Decimal
@@ -38,49 +38,7 @@ class PointOfInterest(BaseModel):
         return (lat_diff ** 2 + lon_diff ** 2) ** 0.5
 
 
-class Street(BaseModel):
-    """
-    Street model representing a connection between parking lots.
-    Defines the cost/distance of driving between two points.
-    """
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "id": 1,
-                "pseudonym": "MainStreet_A_B",
-                "from_position": [100.0, 200.0],
-                "to_position": [300.0, 450.0],
-                "from_parking_zone_id": 1,
-                "to_parking_zone_id": 2,
-                "speed_limit": 2.0
-            }
-        }
-    )
-    
-    # Connection identification
-    id: int = Field(..., description="Unique street identifier")
-    pseudonym: str = Field(..., min_length=1, description="Street's pseudonym for simulation")
-    
-    # Connection points
-    from_position: Tuple[float, float] = Field(..., description="Starting position (latitude, longitude)")
-    to_position: Tuple[float, float] = Field(..., description="Ending position (latitude, longitude)")
-    
-    # Optional parking lot connections
-    from_parking_zone_id: Optional[int] = Field(None, description="Starting parking lot ID (if applicable)")
-    to_parking_zone_id: Optional[int] = Field(None, description="Ending parking lot ID (if applicable)")
-    
-    # Street characteristics - Cost of traversal
-    speed_limit: float = Field(..., gt=0, description="Maximum travel speed (km/h or arbitrary units)")
-    
-    def length(self) -> float:
-        """Calculate the euclidean length between from_position and to_position."""
-        lat_diff = self.to_position[0] - self.from_position[0]
-        lon_diff = self.to_position[1] - self.from_position[1]
-        return (lat_diff ** 2 + lon_diff ** 2) ** 0.5
-    
-    def travel_cost(self) -> float:
-        """Calculate travel cost as length divided by speed limit."""
-        return self.length() / self.speed_limit
+
 
 
 class ParkingZone(BaseModel):
@@ -151,7 +109,7 @@ class ParkingZone(BaseModel):
 class City(BaseModel):
     """
     City model representing a real geographic area.
-    Contains parking lots, streets, and points of interest for driver navigation.
+    Contains parking lots and points of interest for driver navigation.
     Uses real latitude/longitude coordinates.
     """
 
@@ -171,7 +129,6 @@ class City(BaseModel):
         default_factory=list,
         description="List of points of interest in the city"
     )
-    streets: List[Street] = Field(default_factory=list, description="List of streets connecting locations")
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -202,17 +159,6 @@ class City(BaseModel):
                         "id": 2,
                         "pseudonym": "MainStation",
                         "position": [52.5180, 13.4020]
-                    }
-                ],
-                "streets": [
-                    {
-                        "id": 1,
-                        "pseudonym": "MainStreet_A_B",
-                        "from_position": [52.5200, 13.4050],
-                        "to_position": [52.5170, 13.4003],
-                        "from_parking_zone_id": None,
-                        "to_parking_zone_id": 1,
-                        "speed_limit": 50.0
                     }
                 ]
             }
@@ -309,27 +255,7 @@ class City(BaseModel):
 
         self.point_of_interests.append(point_of_interest)
 
-    def add_street(self, street: Street) -> None:
-        """Add a street to the city."""
-        # Validate positions are within geographic bounds
-        for pos_name, pos in [('from', street.from_position), ('to', street.to_position)]:
-            lat, lon = pos
-            if not (self.min_latitude <= lat <= self.max_latitude):
-                raise ValueError(
-                    f'Street {pos_name}_position latitude {lat} is outside city bounds '
-                    f'[{self.min_latitude}, {self.max_latitude}]'
-                )
-            if not (self.min_longitude <= lon <= self.max_longitude):
-                raise ValueError(
-                    f'Street {pos_name}_position longitude {lon} is outside city bounds '
-                    f'[{self.min_longitude}, {self.max_longitude}]'
-                )
 
-        # Check for duplicate IDs
-        if any(s.id == street.id for s in self.streets):
-            raise ValueError(f'Street with ID {street.id} already exists')
-
-        self.streets.append(street)
     
     def total_parking_capacity(self) -> int:
         """Calculate total parking capacity across all lots."""
@@ -370,11 +296,5 @@ class City(BaseModel):
         """Find all parking lots with available spots."""
         return [lot for lot in self.parking_zones if not lot.is_full()]
     
-    def get_streets_from_parking_zone(self, lot_id: int) -> List[Street]:
-        """Get all streets that start from a specific parking lot."""
-        return [street for street in self.streets if street.from_parking_zone_id == lot_id]
-    
-    def get_streets_to_parking_zone(self, lot_id: int) -> List[Street]:
-        """Get all streets that lead to a specific parking lot."""
-        return [street for street in self.streets if street.to_parking_zone_id == lot_id]
+
 
