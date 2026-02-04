@@ -1,20 +1,31 @@
-import React from 'react';
+// INFO PANEL - Displays selected parking zone details and metrics
 
+import React from 'react';
+import './InfoPanel.css';
+
+// ===== COMPONENT =====
 export default function InfoPanel({ zone, onClose }) {
+  // ===== LOGIC =====
   if (!zone) return null;
 
   const occupancyPercent = ((zone.occupancy_rate || 0) * 100).toFixed(1);
-  const occupancyColor = 
-    zone.occupancy_rate >= 0.85 ? '#e74c3c' :
-    zone.occupancy_rate >= 0.65 ? '#f39c12' :
-    zone.occupancy_rate >= 0.3 ? '#27ae60' :
-    '#9b59b6';
+  const occupancyColor =
+    zone.occupancy_rate >= 0.85
+      ? '#e74c3c'
+      : zone.occupancy_rate >= 0.65
+        ? '#f39c12'
+        : zone.occupancy_rate >= 0.3
+          ? '#27ae60'
+          : '#9b59b6';
 
+  // ===== RENDER =====
   return (
     <div className="info-panel">
       <div className="info-header">
         <h3>{zone.name || `Zone ${zone.id}`}</h3>
-        <button className="close-btn" onClick={onClose}>✖</button>
+        <button className="close-btn" onClick={onClose}>
+          ✖
+        </button>
       </div>
 
       <div className="info-body">
@@ -25,7 +36,9 @@ export default function InfoPanel({ zone, onClose }) {
 
         <div className="info-item">
           <span className="info-label">Current Fee:</span>
-          <span className="info-value">${(zone.current_fee || 0).toFixed(2)}/hr</span>
+          <span className="info-value">
+            ${(zone.current_fee || 0).toFixed(2)}/hr
+          </span>
         </div>
 
         <div className="info-item">
@@ -40,11 +53,11 @@ export default function InfoPanel({ zone, onClose }) {
               {occupancyPercent}%
             </span>
             <div className="occupancy-bar-small">
-              <div 
-                className="occupancy-fill-small" 
-                style={{ 
+              <div
+                className="occupancy-fill-small"
+                style={{
                   width: `${Math.min(100, zone.occupancy_rate * 100)}%`,
-                  backgroundColor: occupancyColor
+                  backgroundColor: occupancyColor,
                 }}
               />
             </div>
@@ -54,7 +67,10 @@ export default function InfoPanel({ zone, onClose }) {
         {zone.suggested_fee && (
           <div className="info-item">
             <span className="info-label">Suggested Fee:</span>
-            <span className="info-value" style={{ color: '#27ae60', fontWeight: 'bold' }}>
+            <span
+              className="info-value"
+              style={{ color: '#27ae60', fontWeight: 'bold' }}
+            >
               ${zone.suggested_fee.toFixed(2)}/hr
             </span>
           </div>
@@ -63,7 +79,9 @@ export default function InfoPanel({ zone, onClose }) {
         {zone.lat && zone.lon && (
           <div className="info-item">
             <span className="info-label">Coordinates:</span>
-            <span className="info-value">{zone.lat.toFixed(4)}, {zone.lon.toFixed(4)}</span>
+            <span className="info-value">
+              {zone.lat.toFixed(4)}, {zone.lon.toFixed(4)}
+            </span>
           </div>
         )}
       </div>
