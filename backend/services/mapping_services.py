@@ -4,7 +4,7 @@ from typing import List
 
 
 from services.data.karlsruhe_loader import KarlsruheLoader
-from schemas.optimization import OptimizedZoneResult
+from backend.services.optimizer.schemas.optimization_schema import OptimizedZoneResult
 
 class MappingService:
     def __init__(self, loader: KarlsruheLoader):

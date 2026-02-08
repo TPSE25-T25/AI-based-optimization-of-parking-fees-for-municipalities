@@ -5,10 +5,9 @@ from typing import Dict
 
 # 1. IMPORTS (Angepasst an deine Ordner-Struktur)
 from services.data.karlsruhe_loader import KarlsruheLoader
-# WICHTIG: Dein Optimizer liegt im Unterordner simulation!
-from services.nsga3_optimizer import NSGA3Optimizer 
-from services.mapping_services import MappingService 
-from schemas.optimization import OptimizationRequest, OptimizationSettings
+from services.optimizer.nsga3_optimizer_elasticity import NSGA3OptimizerElasticity
+from services.mapping_services import MappingService
+from backend.services.optimizer.schemas.optimization_schema import OptimizationRequest, OptimizationSettings
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -25,7 +24,7 @@ app.add_middleware(
 # We keep the state of our services here
 state = {
     "loader": None,
-    "optimizer": NSGA3Optimizer(),
+    "optimizer": NSGA3OptimizerElasticity(),
     "mapper": None,
     "last_response": None
 }
@@ -43,7 +42,7 @@ class WeightRequest(BaseModel):
 @app.post("/api/run-optimization")                              # Start optimization process
 def run_optimization(settings: OptimizationSettings):
     print("🔄 Starte Optimierung...")
-    zones = state["loader"].load_zones(limit=500)
+    zones = state["loader"].load_zones_for_optimization(limit=500)
     req = OptimizationRequest(zones=zones, settings=settings)
     
     response = state["optimizer"].optimize(req)

@@ -14,12 +14,17 @@ if str(project_root) not in sys.path:
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Dict, List, Optional
+
+from sqlalchemy import select
 from services.data.karlsruhe_loader import KarlsruheLoader
 from backend.services.optimizer.schemas.optimization_schema import ParkingZone
 from backend.services.optimizer.schemas.optimization_schema import OptimizationRequest, OptimizationResponse, PricingScenario, WeightSelectionRequest, OptimizationSettings
 from backend.services.optimizer.nsga3_optimizer_elasticity import NSGA3OptimizerElasticity
 from backend.services.optimizer.nsga3_optimizer_agent import NSGA3OptimizerAgentBased
+from db.init_db import init_db
+from db.database import SessionLocal
+from db.models import SimulationResult
 
 app = FastAPI(title="Parking Fee Optimization API", version="1.0.0")
 
@@ -42,6 +47,20 @@ parking_zones: List[ParkingZone] = []
 loader = KarlsruheLoader(source=source)
 agent_optimizer = NSGA3OptimizerAgentBased()
 elasticity_optimizer = NSGA3OptimizerElasticity()
+
+
+@app.on_event("startup")
+def startup_event() -> None:
+    init_db()
+
+
+class SaveResultRequest(BaseModel):
+    parameters: Dict
+    map_config: Optional[Dict] = None
+    map_snapshot: Optional[List[Dict]] = None
+    map_path: Optional[str] = None
+    csv_path: Optional[str] = None
+    best_scenario: Optional[Dict] = None
 
 @app.get("/")
 async def root():
@@ -132,6 +151,68 @@ async def select_elasticity_best_solution_by_weights(request: WeightSelectionReq
 async def select_agent_best_solution_by_weights(request: WeightSelectionRequest) -> PricingScenario:
     """Select the best scenario using user weights (agent-based results)."""
     return agent_optimizer.select_best_solution_by_weights(request.optimization_response, request.weights)
+
+
+@app.post("/results")
+async def save_result(request: SaveResultRequest):
+    """Persist a simulation result and optional map configuration to the database."""
+    session = SessionLocal()
+    try:
+        result = SimulationResult(
+            parameters=request.parameters,
+            map_config=request.map_config,
+            map_snapshot=request.map_snapshot,
+            map_path=request.map_path,
+            csv_path=request.csv_path,
+            best_scenario=request.best_scenario,
+        )
+        session.add(result)
+        session.commit()
+        session.refresh(result)
+        return {"id": result.id, "created_at": result.created_at}
+    finally:
+        session.close()
+
+
+@app.get("/results")
+async def list_results():
+    """List stored results without heavy payloads."""
+    session = SessionLocal()
+    try:
+        stmt = select(SimulationResult).order_by(SimulationResult.created_at.desc())
+        results = session.execute(stmt).scalars().all()
+        return [
+            {
+                "id": r.id,
+                "created_at": r.created_at,
+                "parameters": r.parameters,
+            }
+            for r in results
+        ]
+    finally:
+        session.close()
+
+
+@app.get("/results/{result_id}")
+async def get_result(result_id: int):
+    """Fetch a stored result including map snapshot and config."""
+    session = SessionLocal()
+    try:
+        result = session.get(SimulationResult, result_id)
+        if not result:
+            raise HTTPException(status_code=404, detail="Result not found")
+        return {
+            "id": result.id,
+            "created_at": result.created_at,
+            "parameters": result.parameters,
+            "map_config": result.map_config,
+            "map_snapshot": result.map_snapshot,
+            "map_path": result.map_path,
+            "csv_path": result.csv_path,
+            "best_scenario": result.best_scenario,
+        }
+    finally:
+        session.close()
 
 if __name__ == "__main__":
     import uvicorn

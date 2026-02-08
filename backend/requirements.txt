@@ -13,3 +13,4 @@ shapely
 matplotlib
 scikit-learn
 requests
+sqlalchemy>=2.0.0
