@@ -5,13 +5,15 @@ Loads real-world parking data from MobiData BW API and converts to City model.
 
 from typing import List, Tuple, Optional
 
-from backend.services.api.mobidata_api import MobiDataAPI
-from backend.models.city import City, ParkingZone, PointOfInterest
+from backend.services.datasources.mobidata.mobidata_api import MobiDataAPI
+from backend.services.models.city import City, ParkingZone
 from backend.services.optimizer.schemas.optimization_schema import ParkingZone
-from backend.services.data.parking_data_loader import ParkingDataLoader
+from backend.services.datasources.parking_data_source import ParkingDataSource
+from backend.services.settings.data_source_settings import DataSourceSettings
+from backend.services.datasources.osm.osmnx_loader import OSMnxDataSource
 
 
-class MobiDataLoader(ParkingDataLoader):
+class MobiDataDataSource(ParkingDataSource):
     """
     Data Ingestion Service for MobiData BW parking data.
     
@@ -21,14 +23,7 @@ class MobiDataLoader(ParkingDataLoader):
     - Converts API data to City model with ParkingZone objects
     """
 
-    def __init__(
-        self,
-        city_name: Optional[str] = None,
-        center_coords: Optional[Tuple[float, float]] = None,
-        search_radius: int = 5000,
-        default_current_fee: float = 2.0,
-        default_elasticity: float = -0.4
-    ):
+    def __init__(self, data_source: DataSourceSettings):
         """
         Initialize the MobiData loader.
         
@@ -38,19 +33,13 @@ class MobiDataLoader(ParkingDataLoader):
             search_radius: Search radius in meters (default: 5000m = 5km)
             default_current_fee: Default hourly parking current_fee when not available
             default_elasticity: Default current_fee elasticity coefficient
+            seed: Random seed for K-Means clustering (default: 42)
+            poi_limit: Maximum number of POIs to load (default: 50)
         """
-        if not city_name and not center_coords:
-            raise ValueError("Either city_name or center_coords must be provided")
-        
-        self.city_name = city_name
-        self.center_coords = center_coords
-        self.search_radius = search_radius
-        self.default_current_fee = default_current_fee
-        self.default_elasticity = default_elasticity
-        
+        super().__init__(data_source)
         self.api = MobiDataAPI()
     
-    def load_city(self, limit: int = 1000) -> City:
+    def load_city(self) -> City:
         """
         Load parking data and create a City model.
         
@@ -61,7 +50,7 @@ class MobiDataLoader(ParkingDataLoader):
             City model with parking zones and metadata
         """
         # Load zones using the optimization format (without clustering)
-        parking_zones = self.load_zones_for_optimization(limit)
+        parking_zones = self.load_zones_for_optimization()
         
         # Calculate geographic bounds from parking zones
         lats = [pz.position[0] for pz in parking_zones]
@@ -80,23 +69,20 @@ class MobiDataLoader(ParkingDataLoader):
         max_lat += lat_padding
         min_lon -= lon_padding
         max_lon += lon_padding
-        
-        # Determine city name
-        if self.city_name:
-            city_name = self.city_name.replace(" ", "_").replace(",", "")
-        else:
-            city_name = f"City_{self.center_coords[0]:.4f}_{self.center_coords[1]:.4f}"
+                
+        # Load POIs only if we have a valid city name for OSM
+        pois = OSMnxDataSource.load_points_of_interest(self.city_name, self.center_coords, limit=self.poi_limit)
         
         # Create City model
         city = City(
             id=1,
-            name=city_name,
+            name=self.city_name,
             min_latitude=min_lat,
             max_latitude=max_lat,
             min_longitude=min_lon,
             max_longitude=max_lon,
             parking_zones=parking_zones,
-            point_of_interests=[]  # MobiData doesn't provide POIs
+            point_of_interests=pois
         )
         
         print(f"✅ City model created: {city.name}")
@@ -251,7 +237,7 @@ class MobiDataLoader(ParkingDataLoader):
         
         return capacity_map.get(site_type, 50)
     
-    def load_zones_for_optimization(self, limit: int = 1000) -> List[ParkingZone]:
+    def load_zones_for_optimization(self) -> List[ParkingZone]:
         """
         Load parking zones in optimization schema format.
         Compatible with the optimization pipeline.
@@ -269,7 +255,7 @@ class MobiDataLoader(ParkingDataLoader):
         if self.center_coords:
             lat, lon = self.center_coords
             print(f"   Searching near: {lat:.4f}, {lon:.4f} (radius: {self.search_radius}m)")
-            sites = self.api.search_nearby(lat, lon, self.search_radius, limit=limit)
+            sites = self.api.search_nearby(lat, lon, self.search_radius, limit=self.limit)
         else:
             raise ValueError("Either city_name or center_coords must be provided")
         

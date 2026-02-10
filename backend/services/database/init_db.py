@@ -1,6 +1,4 @@
-from .database import Base, engine
-from .models import SimulationResult
-
+from backend.services.database.database import Base, engine
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)

@@ -5,8 +5,8 @@ Driver generation utilities for simulation testing.
 import random
 from typing import List, Tuple
 
-from backend.models.driver import Driver
-from backend.models.city import City, PointOfInterest
+from backend.services.models.driver import Driver
+from backend.services.models.city import City, PointOfInterest
 
 
 class DriverGenerator:

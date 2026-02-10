@@ -4,15 +4,18 @@ Provides a common interface for different parking data sources.
 """
 
 from abc import ABC, abstractmethod
+from ast import Tuple
+from random import seed
 from typing import List
 import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans
-from backend.models.city import City
+from backend.services.models.city import City
 from backend.services.optimizer.schemas.optimization_schema import ParkingZone
+from backend.services.settings.data_source_settings import DataSourceSettings
 
 
-class ParkingDataLoader(ABC):
+class ParkingDataSource(ABC):
     """
     Abstract base class for parking data loaders.
     
@@ -20,8 +23,27 @@ class ParkingDataLoader(ABC):
     and implement the two required methods for a consistent interface.
     """
     
+    def __init__(self, data_source: DataSourceSettings):
+        """
+        Initialize parking data source with seed for reproducibility.
+        
+        Args:
+            seed: Random seed for K-Means clustering and other stochastic operations
+        """
+        self.limit = data_source.limit
+        self.city_name = data_source.city_name
+        self.center_coords = data_source.center_coords
+        self.center_lat, self.center_lon = data_source.center_coords
+        self.tariffs = data_source.tariffs or {}
+        self.default_elasticity = data_source.default_elasticity
+        self.poi_limit = data_source.poi_limit
+        self.search_radius = data_source.search_radius
+        self.default_current_fee = data_source.default_current_fee
+        self.random_seed = data_source.random_seed
+
+    
     @abstractmethod
-    def load_city(self, limit: int = 1000) -> City:
+    def load_city(self) -> City:
         """
         Load parking data and create a City model with ParkingZone objects.
         
@@ -86,7 +108,7 @@ class ParkingDataLoader(ABC):
         # THE ALGORITHM
         kmeans = KMeans(
             n_clusters=n_clusters,
-            random_state=42,       # Fixed seed for reproducibility
+            random_state=self.random_seed,       # Use configured seed for reproducibility
             n_init=10              # Algorithm runs 10x, takes the best result
         )
 
@@ -126,9 +148,6 @@ class ParkingDataLoader(ABC):
         
         # Create lookup dictionary for optimized zones
         opt_dict = {z.id: z for z in optimized_zones}
-        
-        # Create lookup dictionary for original zones
-        zone_dict = {z.id: z for z in original_zones}
 
         for zone in original_zones:
             occupancy_rate_old = zone.current_capacity / zone.maximum_capacity if zone.maximum_capacity > 0 else 0.0

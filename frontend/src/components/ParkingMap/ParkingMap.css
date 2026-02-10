@@ -53,3 +53,38 @@
   color: #555;
   font-size: 13px;
 }
+
+.parking-map-picking-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 998;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 20px;
+}
+
+.parking-map-picking-message {
+  background-color: rgba(52, 152, 219, 0.95);
+  color: white;
+  padding: 12px 20px;
+  border-radius: 6px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.2);
+  font-size: 14px;
+  font-weight: 600;
+  pointer-events: none;
+  animation: pickingPulse 2s ease-in-out infinite;
+}
+
+@keyframes pickingPulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}

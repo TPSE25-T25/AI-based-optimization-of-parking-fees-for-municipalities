@@ -9,7 +9,6 @@ API Documentation: https://api.mobidata-bw.de/park-api/api/public
 
 import requests
 from typing import List, Dict, Optional, Any
-from datetime import datetime
 
 
 class MobiDataAPI:

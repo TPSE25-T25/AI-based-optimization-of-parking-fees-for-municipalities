@@ -1,8 +1,6 @@
-// RESULTS ACTIONS - Download and load optimization results
 
 import React from 'react';
 
-// ===== COMPONENT =====
 export default function ResultsActions({
   optimizationResponse,
   handleDownloadResults,
@@ -40,7 +38,7 @@ export default function ResultsActions({
         onChange={(e) => setSelectedDbResultId(e.target.value)}
         title="Select a saved result"
       >
-        <option value="">Select saved result</option>
+        <option value="">Select result</option>
         {(dbResults || []).map((item) => (
           <option key={item.id} value={item.id}>
             #{item.id} — {new Date(item.created_at).toLocaleString()}

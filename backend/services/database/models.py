@@ -1,7 +1,7 @@
 from sqlalchemy import Column, DateTime, Integer, JSON, String
 from sqlalchemy.sql import func
 
-from .database import Base
+from backend.services.database.database import Base
 
 
 class SimulationResult(Base):

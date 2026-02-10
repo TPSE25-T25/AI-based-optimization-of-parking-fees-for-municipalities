@@ -1,20 +1,15 @@
 """
-Adapter layer for converting between optimization schemas and simulation models.
-
-This module bridges the gap between:
-- OptimizationRequest/ParkingZone (used by NSGA-3 optimizer)
-- City/ParkingZone/Driver models (used by ParkingSimulation)
+TODO: Should refactor this... :/
+As it is kinda of a overcomplex bukakke
 """
 
-from json import load
 from typing import List, Tuple
 import numpy as np
 
-from backend.services.data.generator.driver_generator import DriverGenerator
-from backend.services.data.osmnx_loader import OSMnxLoader
-from backend.services.optimizer.schemas.optimization_schema import OptimizationRequest
-from backend.models.city import City
-from backend.models.driver import Driver
+from backend.services.datasources.generator.driver_generator import DriverGenerator
+from backend.services.datasources.osm.osmnx_loader import OSMnxDataSource
+from backend.services.models.city import City, ParkingZone
+from backend.services.models.driver import Driver
 
 
 class SimulationAdapter:
@@ -42,17 +37,14 @@ class SimulationAdapter:
 
     def create_city_from_request(
         self,
-        request: OptimizationRequest,
-        loader: OSMnxLoader = None,
-        city_id: int = 1,
-        city_name: str = "OptimizationCity"
+        zones: List[ParkingZone]
     ) -> City:
         """
         Create a City model from an OptimizationRequest.
 
         Args:
             request: The optimization request
-            loader: OSMnx loader instance for fetching POIs
+            datasource: OSMnx datasource instance for fetching POIs
             city_id: Unique city identifier
             city_name: City name/name
 
@@ -60,11 +52,11 @@ class SimulationAdapter:
             City model with parking lots
         """
         # Calculate geographic bounds from parking zones
-        if not request.zones:
+        if not zones:
             raise ValueError("Cannot create city without parking zones")
 
-        latitudes = [zone.position[0] for zone in request.zones]
-        longitudes = [zone.position[1] for zone in request.zones]
+        latitudes = [zone.position[0] for zone in zones]
+        longitudes = [zone.position[1] for zone in zones]
 
         min_lat = min(latitudes) - self.bounds_padding
         max_lat = max(latitudes) + self.bounds_padding
@@ -73,14 +65,18 @@ class SimulationAdapter:
 
         # Create city with real geographic bounds
         city = City(
-            id=city_id,
-            name=city_name,
+            id=1,
+            name="OptimizationCity",
             min_latitude=min_lat,
             max_latitude=max_lat,
             min_longitude=min_lon,
             max_longitude=max_lon,
-            parking_zones=request.zones,
-            point_of_interests=loader.load_pois(20) if loader else [],
+            parking_zones=zones,
+            point_of_interests=OSMnxDataSource.load_points_of_interest(
+                city_name="OptimizationCity",
+                center_coords=((min_lat + max_lat) / 2, (min_lon + max_lon) / 2),
+                limit=1000
+            ),
         )
 
         return city

@@ -1,19 +1,18 @@
-"""
-Quick test to verify the driver-based simulation integration works.
-"""
-
 import sys
+import os
 from pathlib import Path
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# --- 1. PATH CONFIGURATION ---
+# Add the 'backend' directory to the system path so Python can find our custom modules.
+current_file_path = os.path.abspath(__file__)           # .../backend/Tests/run_Karlsruhe.py
+current_dir = os.path.dirname(current_file_path)        # .../backend/Tests
+backend_dir = os.path.dirname(current_dir)              # .../backend
 
-from backend.services.optimizer.nsga3_optimizer_agent import create_simulation_optimizer
-from backend.services.optimizer.schemas.optimization_schema import (
-    OptimizationRequest,
-    OptimizationSettings,
-    ParkingZone
-)
+from backend.services.optimizer.nsga3_optimizer_agent import NSGA3OptimizerAgentBased
+from backend.services.settings.optimizations_settings import AgentBasedSettings
+from backend.services.models.city import ParkingZone, City, PointOfInterest
 
 
 def main():
@@ -41,7 +40,7 @@ def main():
             maximum_capacity=80,
             current_fee=1.5,
             current_capacity=int(80 * 0.60),
-            position=(100.0, 100.0),
+            position=(1.0, 1.0),
             min_fee=0.5,
             max_fee=3.0,
             elasticity=-0.4,
@@ -49,33 +48,46 @@ def main():
         ),
     ]
 
-    settings = OptimizationSettings(
-        population_size=50,
-        generations=10,
-        target_occupancy=0.85
+    # Create a City object with the zones
+    city = City(
+        id=1,
+        name="Quick Simulation Test City",
+        min_latitude=0.0,
+        max_latitude=1.0,
+        min_longitude=0.0,
+        max_longitude=1.0,
+        parking_zones=zones,
+        point_of_interests=[
+            PointOfInterest(id=1, name="City Center", position=(0.5, 0.5)),
+            PointOfInterest(id=2, name="Shopping Mall", position=(0.3, 0.7)),
+        ]
     )
 
-    request = OptimizationRequest(zones=zones, settings=settings)
-
-    # Create optimizer with simulation
-    print("\n[1] Creating optimizer with driver simulation...")
-    optimizer = create_simulation_optimizer(
+    # Create agent-based settings
+    settings = AgentBasedSettings(
+        population_size=50,
+        generations=10,
+        target_occupancy=0.85,
         drivers_per_zone_capacity=1.5,
         simulation_runs=1,
         random_seed=42
     )
 
+    # Create optimizer with simulation
+    print("\n[1] Creating optimizer with driver simulation...")
+    optimizer = NSGA3OptimizerAgentBased(settings)
+
     # Run optimization
     print("\n[2] Running optimization...")
     try:
-        response = optimizer.optimize(request)
+        scenarios = optimizer.optimize(city)
 
         print(f"\n✓ SUCCESS!")
-        print(f"  Found {len(response.scenarios)} Pareto-optimal solutions")
+        print(f"  Found {len(scenarios)} Pareto-optimal solutions")
 
         # Show first solution
-        if response.scenarios:
-            scenario = response.scenarios[0]
+        if scenarios:
+            scenario = scenarios[0]
             print(f"\n[3] First Solution (Scenario #{scenario.scenario_id}):")
             print(f"  Revenue: ${scenario.score_revenue:,.2f}")
             print(f"  Occupancy Gap: {scenario.score_occupancy_gap:.4f}")

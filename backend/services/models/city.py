@@ -2,7 +2,7 @@
 City models for parking simulation
 """
 
-from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
+from pydantic import BaseModel, Field, model_validator, ConfigDict
 from typing import List, Tuple, Optional
 
 
@@ -36,10 +36,6 @@ class PointOfInterest(BaseModel):
         lon_diff = point[1] - self.position[1]
         return (lat_diff ** 2 + lon_diff ** 2) ** 0.5
 
-
-
-
-
 class ParkingZone(BaseModel):
     """
     ParkingZone model for parking simulation.
@@ -62,28 +58,25 @@ class ParkingZone(BaseModel):
     id: int = Field(..., description="Unique parking lot identifier")
     name: str = Field(..., min_length=1, description="Parking lot's name for simulation")
     
-    
     # Location data (latitude, longitude)
     position: Tuple[float, float] = Field(..., description="Parking lot position (latitude, longitude)")
     
-    # Capacity management
-    maximum_capacity: int = Field(..., gt=0, description="Maximum number of parking spots")
+    # Important for Objective 1: Capacity management
     current_capacity: int = Field(..., ge=0, description="Currently occupied parking spots")
     
-    # Pricing
+    # Important for Objective 2: Reveneue maximization
     current_fee: float = Field(..., ge=0, description="Hourly parking current_fee")
-    min_fee: float = Field(default=0.0, ge=0, description="Legal minimum fee")
-    max_fee: float = Field(default=10.0, description="Legal maximum fee")
 
-    # Simulation Data: How do users behave?
     # Important for Objective 3: Demand drop
-    # syntax: 'le=0' (Less or Equal 0) because elasticity is usually negative
     elasticity: float = Field(default=-0.5, le=0, description="current_fee elasticity (How strongly does demand drop with current_fee increase?)")
 
     # [cite_start]Important for Objective 4: User groups [cite: 167, 173]
-    # syntax: 'ge=0' and 'le=1.0' ensures a valid percentage between 0% and 100%
     short_term_share: float = Field(default=0.5, ge=0, le=1.0, description="Share of short-term parkers (0.0 - 1.0)")
 
+    # Constraints
+    maximum_capacity: int = Field(..., gt=0, description="Maximum number of parking spots")
+    min_fee: float = Field(default=0.0, ge=0, description="Legal minimum fee")
+    max_fee: float = Field(default=10.0, description="Legal maximum fee")
     
     @model_validator(mode='after')
     def current_capacity_not_exceed_maximum(self):
@@ -137,10 +130,7 @@ class City(BaseModel):
 
     # City components
     parking_zones: List[ParkingZone] = Field(default_factory=list, description="List of parking lots in the city")
-    point_of_interests: List[PointOfInterest] = Field(
-        default_factory=list,
-        description="List of points of interest in the city"
-    )
+    point_of_interests: List[PointOfInterest] = Field(default_factory=list, description="List of points of interest in the city")
 
     model_config = ConfigDict(
         json_schema_extra={

@@ -9,19 +9,21 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 import osmnx as ox
+import requests
 
-from sklearn.cluster import KMeans
 from shapely.geometry import Point
 from typing import List, Dict, Optional, Tuple
-from backend.models.city import PointOfInterest, City, ParkingZone
-from backend.services.data.parking_data_loader import ParkingDataLoader
+from backend.services.models.city import PointOfInterest, City, ParkingZone
+from backend.services.datasources.parking_data_source import ParkingDataSource
+from backend.services.settings.data_source_settings import DataSourceSettings
+
 import urllib3
 
 # Disable SSL warnings (OSM/Network specific)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
-class OSMnxLoader(ParkingDataLoader):
+class OSMnxDataSource(ParkingDataSource):
     """
     Generic Data Ingestion Service for any city using OpenStreetMap.
 
@@ -38,33 +40,231 @@ class OSMnxLoader(ParkingDataLoader):
     - Occupancy simulation based on distance from city center
     """
 
-    def __init__(
-        self,
-        place_name: str,
-        center_coords: Tuple[float, float],
-        tariff_database: Optional[Dict[str, float]] = None,
-        default_elasticity: float = -0.4
-    ):
+    def __init__(self, data_source: DataSourceSettings):
         """
         Initialize the parking data loader.
 
         Args:
-            place_name: City name for OSM query (e.g., "Berlin, Germany", "Paris, France")
+            city_name: City name for OSM query (e.g., "Berlin, Germany", "Paris, France")
             center_coords: (latitude, longitude) of city center for distance calculations
-            tariff_database: Optional dict mapping location keywords to hourly current_fees
+            tariffs: Optional dict mapping location keywords to hourly current_fees
                             e.g., {"station": 2.50, "mall": 2.00}
             default_elasticity: current_fee elasticity coefficient (default: -0.4)
+            seed: Random seed for K-Means clustering (default: 42)
+            poi_limit: Maximum number of POIs to load (default: 50)
         """
-        self.place_name = place_name
-        self.center_lat, self.center_lon = center_coords
-        self.tariff_database = tariff_database or {}
-        self.default_elasticity = default_elasticity
+        super().__init__(data_source)
 
         self.gdf = None         # Holds the GeoDataFrame for map visualization
         self.zone_lookup = {}   # Fast lookup dictionary for zone objects
 
         # UTM zone will be auto-detected based on coordinates
         self.utm_epsg = self._get_utm_epsg(self.center_lon, self.center_lat)
+
+    @staticmethod
+    def reverse_geocode(lat: float, lon: float) -> Dict[str, any]:
+        """
+        Reverse geocode coordinates to get location information.
+        
+        Uses OpenStreetMap's Nominatim API to convert coordinates to a human-readable address.
+        
+        Args:
+            lat: Latitude coordinate
+            lon: Longitude coordinate
+            
+        Returns:
+            Dictionary with:
+                - city_name: Formatted city name with country
+                - latitude: Original latitude
+                - longitude: Original longitude
+                - address_details: Full address information from Nominatim
+                
+        Raises:
+            Exception: If reverse geocoding fails
+        """
+        try:
+            url = f"https://nominatim.openstreetmap.org/reverse"
+            params = {
+                "format": "json",
+                "lat": lat,
+                "lon": lon,
+                "zoom": 10,
+                "addressdetails": 1
+            }
+            headers = {
+                "User-Agent": "ParkingOptimizationApp/1.0"
+            }
+            
+            response = requests.get(url, params=params, headers=headers, timeout=10)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            city_name = "Unknown Location"
+            if data and "address" in data:
+                addr = data["address"]
+                # Try different location types in order of preference
+                city_name = (
+                    addr.get("city") or 
+                    addr.get("town") or 
+                    addr.get("village") or 
+                    addr.get("municipality") or 
+                    addr.get("county") or 
+                    "Unknown Location"
+                )
+                
+                # Add country if available
+                if addr.get("country"):
+                    city_name += f", {addr['country']}"
+            
+            return {
+                "city_name": city_name,
+                "latitude": lat,
+                "longitude": lon,
+                "address_details": data.get("address", {})
+            }
+            
+        except requests.RequestException as e:
+            raise Exception(f"Reverse geocoding failed: {str(e)}")
+        except Exception as e:
+            raise Exception(f"Error processing reverse geocoding response: {str(e)}")
+
+    @staticmethod
+    def load_points_of_interest(
+        city_name: str,
+        center_coords: Tuple[float, float],
+        limit: int = 10,
+        categories: Optional[List[str]] = None
+    ) -> List[PointOfInterest]:
+        """
+        Load Points of Interest (POIs) from OpenStreetMap for any location.
+        
+        Static method that can be called without instantiating the class.
+        Fetches various POI categories that are common driver destinations.
+        
+        Args:
+            city_name: City or location name for OSM query (e.g., "Berlin, Germany")
+            center_coords: (latitude, longitude) tuple for distance prioritization
+            limit: Maximum number of POIs to return (default: 50)
+            categories: Optional list of specific POI categories to fetch.
+                       If None, fetches all default categories:
+                       - Shopping (malls, supermarkets, shops)
+                       - Tourism (museums, attractions, monuments)
+                       - Dining (restaurants, cafes)
+                       - Transportation (stations, terminals)
+                       - Healthcare (hospitals, clinics)
+                       - Education (universities, schools)
+                       - Entertainment (cinema, theater)
+                       
+        Returns:
+            List of PointOfInterest objects sorted by distance from center
+            
+        Example:
+            >>> pois = OSMnxDataSource.load_points_of_interest(
+            ...     "Paris, France",
+            ...     (48.8566, 2.3522),
+            ...     limit=100
+            ... )
+        """
+        center_lat, center_lon = center_coords
+        print(f"📍 Loading {limit} Points of Interest for '{city_name}'...")
+        
+        # Define default POI categories if none provided
+        if categories is None:
+            poi_tags = {
+                'amenity': [
+                    'cinema', 'theatre', 'library', 'community_centre',
+                    'hospital', 'bank', 'post_office', 'townhall', 'courthouse',
+                    'university', 'school', 'college', 'kindergarten'  
+                ]
+            }
+        else:
+            poi_tags = {'amenity': categories}
+        
+        all_pois = []
+        
+        try:
+            # Fetch POIs by category
+            for category, values in poi_tags.items():
+                try:
+                    tags = {category: values}
+                    gdf_poi = ox.features_from_place(city_name, tags)
+                    
+                    if not gdf_poi.empty:
+                        # Convert to lat/lon for centroids
+                        gdf_poi = gdf_poi.to_crs(epsg=4326)
+                        
+                        # Extract relevant POIs
+                        for _, row in gdf_poi.iterrows():
+                            # Get centroid for polygon/line features
+                            if row.geometry.geom_type in ['Polygon', 'MultiPolygon', 'LineString']:
+                                centroid = row.geometry.centroid
+                                lat, lon = centroid.y, centroid.x
+                            else:
+                                lat, lon = row.geometry.y, row.geometry.x
+                            
+                            # Get name (fallback to type if no name)
+                            name = row.get('name', f"{category.title()} {len(all_pois) + 1}")
+                            if pd.isna(name):
+                                poi_type = row.get(category, 'Unknown')
+                                name = f"{poi_type.replace('_', ' ').title()} {len(all_pois) + 1}"
+                            
+                            all_pois.append({
+                                'name': str(name),
+                                'lat': lat,
+                                'lon': lon,
+                                'category': category,
+                                'type': row.get(category, 'unknown')
+                            })
+                
+                except Exception as e:
+                    print(f"   ⚠ Warning: Could not fetch {category} POIs: {e}")
+                    continue
+            
+            # Prioritize central POIs (closer to city center)
+            if all_pois:
+                # Calculate distance from center
+                for poi in all_pois:
+                    dist = np.sqrt(
+                        (poi['lat'] - center_lat)**2 +
+                        (poi['lon'] - center_lon)**2
+                    ) * 111.0  # Approximate km
+                    poi['dist_from_center'] = dist
+                
+                # Sort by distance (prioritize central locations)
+                all_pois.sort(key=lambda x: x['dist_from_center'])
+                
+                # Take top N POIs
+                selected_pois = all_pois[:limit]
+                
+                # Create PointOfInterest objects
+                poi_objects = []
+                for i, poi_data in enumerate(selected_pois, 1):
+                    poi_obj = PointOfInterest(
+                        id=i,
+                        name=poi_data['name'],
+                        position=(poi_data['lat'], poi_data['lon'])
+                    )
+                    poi_objects.append(poi_obj)
+                
+                print(f"✅ Loaded {len(poi_objects)} Points of Interest from {len(poi_tags['amenity'])} categories")
+                return poi_objects
+            else:
+                print("⚠ No POIs found. Using fallback city center POI.")
+                return [PointOfInterest(
+                    id=1,
+                    name="City Center",
+                    position=(center_lat, center_lon)
+                )]
+        
+        except Exception as e:
+            print(f"❌ Error loading POIs: {e}")
+            print("   Using fallback city center POI.")
+            return [PointOfInterest(
+                id=1,
+                name="City Center",
+                position=(center_lat, center_lon)
+            )]
 
     def _get_utm_epsg(self, lon: float, lat: float) -> int:
         """
@@ -90,28 +290,24 @@ class OSMnxLoader(ParkingDataLoader):
 
         return epsg
 
-    def load_zones_for_optimization(self, limit: int = 1000) -> List[ParkingZone]:
+    def load_zones_for_optimization(self) -> List[ParkingZone]:
         """
         Load parking zones in optimization schema format.
         Compatible with the optimization pipeline.
-
-        Args:
-            limit: Maximum number of parking zones to return (best zones by priority/area)
-
         Returns:
             List of ParkingZone objects ready for optimization
         """
         self.zone_lookup = {}
 
-        print(f"🌍 Loading geospatial data for '{self.place_name}' via OpenStreetMap...")
+        print(f"🌍 Loading geospatial data for '{self.city_name}' via OpenStreetMap...")
         print(f"   Center: {self.center_lat:.4f}, {self.center_lon:.4f}")
         print(f"   UTM Zone: EPSG:{self.utm_epsg}")
         print("   (This might take 10-20 seconds, please wait...)")
 
-        raw_zones = self._load_from_osm(limit)
+        raw_zones = self._load_from_osm()
         return self.cluster_zones(raw_zones)
 
-    def load_city(self, limit: int = 1000) -> City:
+    def load_city(self) -> City:
         """
         Load parking data and create a City model with ParkingZone objects.
         
@@ -122,10 +318,10 @@ class OSMnxLoader(ParkingDataLoader):
             City model with parking zones and metadata
         """
         # Load parking zones for optimization
-        parking_zones = self.load_zones_for_optimization(limit)
+        parking_zones = self.load_zones_for_optimization()
         
         if not parking_zones:
-            raise ValueError(f"No parking zones found for '{self.place_name}'")
+            raise ValueError(f"No parking zones found for '{self.city_name}'")
         
         # Calculate geographic bounds from parking zones
         lats = [zone.position[0] for zone in parking_zones]
@@ -146,13 +342,13 @@ class OSMnxLoader(ParkingDataLoader):
         max_lon += lon_padding
         
         # Load POIs
-        pois = self.load_pois(limit=50)
+        pois = OSMnxDataSource.load_points_of_interest(self.city_name, (self.center_lat, self.center_lon), limit=self.poi_limit)
         
         # Create City model
-        city_pseudonym = self.place_name.replace(", ", "_").replace(" ", "_")
+        city_name = self.city_name.replace(", ", "_").replace(" ", "_")
         city = City(
             id=1,
-            pseudonym=city_pseudonym,
+            name=city_name,
             min_latitude=min_lat,
             max_latitude=max_lat,
             min_longitude=min_lon,
@@ -161,7 +357,7 @@ class OSMnxLoader(ParkingDataLoader):
             point_of_interests=pois
         )
         
-        print(f"✅ City model created: {city.pseudonym}")
+        print(f"✅ City model created: {city.name}")
         print(f"   Bounds: ({min_lat:.4f}, {min_lon:.4f}) to ({max_lat:.4f}, {max_lon:.4f})")
         print(f"   Parking zones: {len(city.parking_zones)}")
         print(f"   Points of Interest: {len(city.point_of_interests)}")
@@ -169,128 +365,6 @@ class OSMnxLoader(ParkingDataLoader):
         print(f"   Occupancy: {city.city_occupancy_rate()*100:.1f}%")
         
         return city
-
-    def load_pois(self, limit: int = 50) -> List[PointOfInterest]:
-        """
-        Load Points of Interest (POIs) from OpenStreetMap for driver destinations.
-
-        Fetches various POI categories that are common driver destinations:
-        - Shopping (malls, supermarkets, shops)
-        - Tourism (museums, attractions, monuments)
-        - Transportation hubs (train stations, bus terminals)
-        - Public buildings (town hall, library, post office)
-        - Entertainment (cinema, theater, restaurants)
-        - Education (universities, schools)
-        - Healthcare (hospitals, clinics)
-
-        Args:
-            limit: Maximum number of POIs to return
-
-        Returns:
-            List of PointOfInterest objects
-        """
-        print(f"📍 Loading Points of Interest for '{self.place_name}'...")
-
-        # Define POI categories to fetch from OSM
-        # These are the most common driver destinations
-        poi_tags = {
-            'amenity': [
-                'restaurant', 'cafe', 'fast_food',  # Dining
-                'cinema', 'theatre', 'library',      # Entertainment & Culture
-                'hospital', 'clinic', 'pharmacy',    # Healthcare
-                'bank', 'post_office', 'townhall',   # Services
-                'university', 'school', 'college'    # Education
-            ]
-        }
-
-        all_pois = []
-
-        try:
-            # Fetch POIs by category
-            for category, values in poi_tags.items():
-                try:
-                    tags = {category: values}
-                    gdf_poi = ox.features_from_place(self.place_name, tags)
-
-                    if not gdf_poi.empty:
-                        # Convert to lat/lon for centroids
-                        gdf_poi = gdf_poi.to_crs(epsg=4326)
-
-                        # Extract relevant POIs
-                        for _, row in gdf_poi.iterrows():
-                            # Get centroid for polygon/line features
-                            if row.geometry.geom_type in ['Polygon', 'MultiPolygon', 'LineString']:
-                                centroid = row.geometry.centroid
-                                lat, lon = centroid.y, centroid.x
-                            else:
-                                lat, lon = row.geometry.y, row.geometry.x
-
-                            # Get name (fallback to type if no name)
-                            name = row.get('name', f"{category.title()} {len(all_pois) + 1}")
-                            if pd.isna(name):
-                                poi_type = row.get(category, 'Unknown')
-                                name = f"{poi_type.replace('_', ' ').title()} {len(all_pois) + 1}"
-
-                            all_pois.append({
-                                'name': str(name),
-                                'lat': lat,
-                                'lon': lon,
-                                'category': category,
-                                'type': row.get(category, 'unknown')
-                            })
-
-                except Exception as e:
-                    print(f"   ⚠ Warning: Could not fetch {category} POIs: {e}")
-                    continue
-
-            # Prioritize central POIs (closer to city center)
-            if all_pois:
-                # Calculate distance from center
-                for poi in all_pois:
-                    dist = np.sqrt(
-                        (poi['lat'] - self.center_lat)**2 +
-                        (poi['lon'] - self.center_lon)**2
-                    ) * 111.0  # Approximate km
-                    poi['dist_from_center'] = dist
-
-                # Sort by distance (prioritize central locations)
-                all_pois.sort(key=lambda x: x['dist_from_center'])
-
-                # Take top N POIs
-                selected_pois = all_pois[:limit]
-
-                # Create PointOfInterest objects
-                poi_objects = []
-                for i, poi_data in enumerate(selected_pois, 1):
-                    poi_obj = PointOfInterest(
-                        id=i,
-                        pseudonym=poi_data['name'],
-                        position=(poi_data['lat'], poi_data['lon'])
-                    )
-                    poi_objects.append(poi_obj)
-
-                print(f"✅ Loaded {len(poi_objects)} Points of Interest")
-                print(f"   Categories: Shopping, Dining, Tourism, Healthcare, Education, Entertainment")
-
-                return poi_objects
-            else:
-                print("⚠ No POIs found. Using fallback city center POI.")
-                # Fallback: Create a single POI at city center
-                return [PointOfInterest(
-                    id=1,
-                    pseudonym="City Center",
-                    position=(self.center_lat, self.center_lon)
-                )]
-
-        except Exception as e:
-            print(f"❌ Error loading POIs: {e}")
-            print("   Using fallback city center POI.")
-            # Fallback: Create a single POI at city center
-            return [PointOfInterest(
-                id=1,
-                pseudonym="City Center",
-                position=(self.center_lat, self.center_lon)
-            )]
 
     def _get_current_fee(self, name: str, dist_km: float) -> float:
         """
@@ -310,7 +384,7 @@ class OSMnxLoader(ParkingDataLoader):
         name_lower = str(name).lower()
 
         # 1. Database Lookup (substring matching)
-        for keyword, current_fee in self.tariff_database.items():
+        for keyword, current_fee in self.tariffs.items():
             if keyword.lower() in name_lower:
                 return current_fee
 
@@ -408,7 +482,7 @@ class OSMnxLoader(ParkingDataLoader):
             # Linear interpolation: 80% at 1km -> 20% at 3km
             return 0.8 - ((dist_km - 1.0) * 0.3)
 
-    def _load_from_osm(self, limit: int) -> List[ParkingZone]:
+    def _load_from_osm(self) -> List[ParkingZone]:
         """
         Fetches, cleans, and enriches raw data from OpenStreetMap.
 
@@ -423,7 +497,7 @@ class OSMnxLoader(ParkingDataLoader):
             tags = {"amenity": "parking"}
 
             # 1. Fetch raw data from OSM API
-            gdf_osm = ox.features_from_place(self.place_name, tags)
+            gdf_osm = ox.features_from_place(self.city_name, tags)
 
             # 2. Coordinate Transformation (Lat/Lon -> Meters)
             # Essential for accurate area and centroid calculation
@@ -444,14 +518,14 @@ class OSMnxLoader(ParkingDataLoader):
             top_zones = gdf_osm.sort_values(
                 by=["priority", "area"],
                 ascending=[False, False]
-            ).head(limit)
+            ).head(self.limit)
 
             zones_input = []
             geometries = []
             ids = []
             names = []
 
-            print(f"✅ OSM returned {len(gdf_osm)} raw results. Processing top {limit}...")
+            print(f"✅ OSM returned {len(gdf_osm)} raw results. Processing top {self.limit}...")
 
             # Iterate through the zones
             for idx, (osm_id, row) in enumerate(top_zones.iterrows(), 1):
@@ -500,7 +574,7 @@ class OSMnxLoader(ParkingDataLoader):
                 # Store for GeoDataFrame construction
                 geometries.append(Point(lon, lat))
                 ids.append(zone.id)
-                names.append(zone.pseudonym)
+                names.append(zone.name)
 
             # Create GeoDataFrame for visualization
             self.gdf = gpd.GeoDataFrame(
@@ -550,7 +624,7 @@ class OSMnxLoader(ParkingDataLoader):
 
         return ParkingZone(
             id=id,
-            pseudonym=name,
+            name=name,
             maximum_capacity=int(capacity),
             current_capacity=current_capacity,
             current_fee=round(current_fee, 2),

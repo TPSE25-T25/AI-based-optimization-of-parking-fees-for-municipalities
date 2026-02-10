@@ -6,7 +6,7 @@ import random
 import math
 from typing import List, Tuple, Optional
 
-from backend.models.city import City, PointOfInterest, ParkingZone
+from backend.services.models.city import City, PointOfInterest, ParkingZone
 
 
 class ParkingZoneGenerator:
@@ -29,9 +29,8 @@ class ParkingZoneGenerator:
         count: int,
         lat_range: Tuple[float, float],
         lon_range: Tuple[float, float],
-        current_fee_range: Tuple[float, float] = (1.0, 10.0),
-        capacity_range: Tuple[int, int] = (50, 300),
-        initial_occupancy: float = 0.0
+        current_fee_range: Tuple[float, float] = (0.0, 5.0),
+        capacity_range: Tuple[int, int] = (1, 100),
     ) -> List[ParkingZone]:
         """
         Generate random parking lots within geographic bounds.
@@ -42,7 +41,6 @@ class ParkingZoneGenerator:
             lon_range: (min_lon, max_lon) longitude bounds
             current_fee_range: (min, max) hourly parking current_fee
             capacity_range: (min, max) parking capacity
-            initial_occupancy: Initial occupancy rate (0.0 to 1.0)
 
         Returns:
             List of generated parking lots
@@ -55,7 +53,7 @@ class ParkingZoneGenerator:
 
             current_fee = random.uniform(current_fee_range[0], current_fee_range[1])
             max_capacity = random.randint(capacity_range[0], capacity_range[1])
-            current_capacity = int(max_capacity * initial_occupancy)
+            current_capacity = random.randint(0, max_capacity)
 
             lot = ParkingZone(
                 id=i + 1,
@@ -120,14 +118,14 @@ class ParkingZoneGenerator:
 
             current_fee = random.uniform(current_fee_range[0], current_fee_range[1])
             max_capacity = random.randint(capacity_range[0], capacity_range[1])
-
+            current_capacity = random.randint(0, max_capacity)
             lot = ParkingZone(
                 id=i + 1,
                 name=f"ClusteredLot_{i+1:03d}",
                 current_fee=current_fee,
                 position=(lat, lon),
                 maximum_capacity=max_capacity,
-                current_capacity=0
+                current_capacity=current_capacity
             )
 
             lots.append(lot)
@@ -203,7 +201,7 @@ class ParkingZoneGenerator:
                     current_fee=current_fee,
                     position=(lat, lon),
                     maximum_capacity=capacity,
-                    current_capacity=0,
+                    current_capacity=random.randint(0, capacity),
                     min_fee=0.5,
                     max_fee=10.0
                 )
