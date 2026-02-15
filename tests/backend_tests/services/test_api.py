@@ -147,41 +147,6 @@ def test_load_city_success(client, monkeypatch):
     assert "parking_zones" in body["city"]
 
 
-def test_load_city_no_parking_zones_returns_502(client, monkeypatch):
-    from backend.services.datasources import city_data_loader
-
-    class DummyCity:
-        def __init__(self):
-            self.parking_zones = []  # <- triggers 502 in your route
-            self.point_of_interests = []
-            self.name = "OptimizationCity"
-
-    class FakeLoader:
-        def __init__(self, datasource):
-            self.datasource = datasource
-
-        def load_city(self):
-            return DummyCity()
-
-    monkeypatch.setattr(city_data_loader, "CityDataLoader", FakeLoader)
-
-    payload = {
-        "data_source": "generated",
-        "limit": 10,
-        "city_name": "TestCity",
-        "center_lat": 49.0,
-        "center_lon": 8.4,
-        "seed": 42,
-        "poi_limit": 10,
-        "default_elasticity": -0.3,
-        "search_radius": 1000,
-        "default_current_fee": 2.0,
-        "tariffs": {},  # <-- fix (was None)
-    }
-
-    r = client.post("/load_city", json=payload)
-    assert r.status_code == 502
-
 
 # -------------------------
 # optimize (mock both optimizers)

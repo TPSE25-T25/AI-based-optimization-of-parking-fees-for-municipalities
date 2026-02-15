@@ -16,3 +16,4 @@ requests
 sqlalchemy
 numba
 joblib
+httpx
