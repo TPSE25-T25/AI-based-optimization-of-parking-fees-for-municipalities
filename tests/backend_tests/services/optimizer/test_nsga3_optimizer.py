@@ -6,13 +6,10 @@ Tests the multi-objective optimization engine for parking pricing.
 import pytest
 import numpy as np
 from backend.services.optimizer.nsga3_optimizer_elasticity import NSGA3OptimizerElasticity
-from backend.models.city import ParkingZone
-from backend.services.optimizer.schemas.optimization_schema import (
-    OptimizationRequest,
-    OptimizationSettings,
-    OptimizationResponse,
-    PricingScenario
-)
+from backend.services.models.city import ParkingZone, City
+from backend.services.settings.optimizations_settings import OptimizationSettings
+from backend.services.optimizer.schemas.optimization_schema import PricingScenario
+from backend.services.payloads.optimization_payload import OptimizationRequest
 
 
 @pytest.fixture
@@ -71,16 +68,32 @@ def optimization_settings():
 @pytest.fixture
 def optimization_request(sample_zones, optimization_settings):
     """Create a complete optimization request for testing."""
+    city = City(
+        id=1,
+        name="TestCity",
+        min_latitude=49.0,
+        max_latitude=49.04,
+        min_longitude=8.40,
+        max_longitude=8.44,
+        parking_zones=sample_zones,
+        point_of_interests=[]
+    )
     return OptimizationRequest(
-        zones=sample_zones,
-        settings=optimization_settings
+        city=city,
+        optimizer_settings=optimization_settings
     )
 
 
 @pytest.fixture
 def optimizer():
     """Create an optimizer instance with fixed seed for reproducibility."""
-    return NSGA3OptimizerElasticity(random_seed=42)
+    settings = OptimizationSettings(
+        random_seed=42,
+        population_size=20,
+        generations=5,
+        target_occupancy=0.85
+    )
+    return NSGA3OptimizerElasticity(settings)
 
 
 class TestNSGA3OptimizerDataConversion:
@@ -88,7 +101,7 @@ class TestNSGA3OptimizerDataConversion:
 
     def test_convert_request_to_numpy_structure(self, optimizer, optimization_request):
         """Test that conversion produces correct dictionary structure."""
-        data = optimizer._convert_request_to_numpy(optimization_request)
+        data = optimizer._convert_zones_to_numpy(optimization_request.city.parking_zones)
 
         # Check all expected keys are present
         expected_keys = {
@@ -99,7 +112,7 @@ class TestNSGA3OptimizerDataConversion:
 
     def test_convert_request_to_numpy_types(self, optimizer, optimization_request):
         """Test that arrays have correct numpy types."""
-        data = optimizer._convert_request_to_numpy(optimization_request)
+        data = optimizer._convert_zones_to_numpy(optimization_request.city.parking_zones)
 
         # Check that all arrays are numpy arrays
         for key in ["current_current_fees", "min_fees", "max_fees", "capacities",
@@ -108,8 +121,8 @@ class TestNSGA3OptimizerDataConversion:
 
     def test_convert_request_to_numpy_shapes(self, optimizer, optimization_request):
         """Test that arrays have correct shapes."""
-        data = optimizer._convert_request_to_numpy(optimization_request)
-        n_zones = len(optimization_request.zones)
+        data = optimizer._convert_zones_to_numpy(optimization_request.city.parking_zones)
+        n_zones = len(optimization_request.city.parking_zones)
 
         # Check array dimensions
         for key in ["current_current_fees", "min_fees", "max_fees", "capacities",
@@ -118,8 +131,8 @@ class TestNSGA3OptimizerDataConversion:
 
     def test_convert_request_to_numpy_values(self, optimizer, optimization_request):
         """Test that converted values match input data."""
-        data = optimizer._convert_request_to_numpy(optimization_request)
-        zones = optimization_request.zones
+        data = optimizer._convert_zones_to_numpy(optimization_request.city.parking_zones)
+        zones = optimization_request.city.parking_zones
 
         # Check specific values
         assert data["current_current_fees"][0] == float(zones[0].current_fee)
@@ -130,8 +143,8 @@ class TestNSGA3OptimizerDataConversion:
 
     def test_convert_request_occupancy_calculation(self, optimizer, optimization_request):
         """Test that occupancy is calculated correctly."""
-        data = optimizer._convert_request_to_numpy(optimization_request)
-        zones = optimization_request.zones
+        data = optimizer._convert_zones_to_numpy(optimization_request.city.parking_zones)
+        zones = optimization_request.city.parking_zones
 
         # Zone 0: 60/100 = 0.6
         expected_occ_0 = zones[0].current_capacity / zones[0].maximum_capacity
@@ -154,12 +167,18 @@ class TestNSGA3OptimizerDataConversion:
             max_fee=5.0
         )
 
-        request = OptimizationRequest(
-            zones=[zone_small_capacity],
-            settings=OptimizationSettings()
+        city = City(
+            id=1,
+            name="TestCity",
+            min_latitude=49.0,
+            max_latitude=49.01,
+            min_longitude=8.39,
+            max_longitude=8.41,
+            parking_zones=[zone_small_capacity],
+            point_of_interests=[]
         )
 
-        data = optimizer._convert_request_to_numpy(request)
+        data = optimizer._convert_zones_to_numpy(city.parking_zones)
 
         # Should calculate occupancy correctly for small capacities
         assert data["current_occupancy"][0] == 0.0
@@ -170,7 +189,7 @@ class TestNSGA3OptimizerPhysicsCalculation:
 
     def test_calculate_physics_returns_correct_structure(self, optimizer, optimization_request):
         """Test that physics calculation returns expected structure."""
-        data = optimizer._convert_request_to_numpy(optimization_request)
+        data = optimizer._convert_zones_to_numpy(optimization_request.city.parking_zones)
         current_fees = data["current_current_fees"]
 
         results = optimizer._calculate_physics(current_fees, data)
@@ -186,9 +205,9 @@ class TestNSGA3OptimizerPhysicsCalculation:
 
     def test_calculate_physics_array_shapes(self, optimizer, optimization_request):
         """Test that output arrays have correct shapes."""
-        data = optimizer._convert_request_to_numpy(optimization_request)
+        data = optimizer._convert_zones_to_numpy(optimization_request.city.parking_zones)
         current_fees = data["current_current_fees"]
-        n_zones = len(optimization_request.zones)
+        n_zones = len(optimization_request.city.parking_zones)
 
         results = optimizer._calculate_physics(current_fees, data)
 
@@ -199,7 +218,7 @@ class TestNSGA3OptimizerPhysicsCalculation:
 
     def test_calculate_physics_current_fee_increase_reduces_demand(self, optimizer, optimization_request):
         """Test that current_fee increases reduce occupancy (negative elasticity)."""
-        data = optimizer._convert_request_to_numpy(optimization_request)
+        data = optimizer._convert_zones_to_numpy(optimization_request.city.parking_zones)
 
         # Calculate with current current_fees
         results_current = optimizer._calculate_physics(data["current_current_fees"], data)
@@ -213,7 +232,7 @@ class TestNSGA3OptimizerPhysicsCalculation:
 
     def test_calculate_physics_current_fee_decrease_increases_demand(self, optimizer, optimization_request):
         """Test that current_fee decreases increase occupancy."""
-        data = optimizer._convert_request_to_numpy(optimization_request)
+        data = optimizer._convert_zones_to_numpy(optimization_request.city.parking_zones)
 
         # Calculate with current current_fees
         results_current = optimizer._calculate_physics(data["current_current_fees"], data)
@@ -227,7 +246,7 @@ class TestNSGA3OptimizerPhysicsCalculation:
 
     def test_calculate_physics_occupancy_constraints(self, optimizer, optimization_request):
         """Test that occupancy is constrained to valid range."""
-        data = optimizer._convert_request_to_numpy(optimization_request)
+        data = optimizer._convert_zones_to_numpy(optimization_request.city.parking_zones)
 
         # Test with very low current_fees (should cap at 1.0)
         low_current_fees = data["min_fees"] * 0.1
@@ -243,7 +262,7 @@ class TestNSGA3OptimizerPhysicsCalculation:
 
     def test_calculate_physics_revenue_calculation(self, optimizer, optimization_request):
         """Test that revenue is calculated correctly."""
-        data = optimizer._convert_request_to_numpy(optimization_request)
+        data = optimizer._convert_zones_to_numpy(optimization_request.city.parking_zones)
         current_fees = np.array([5.0, 6.0, 4.0])
 
         results = optimizer._calculate_physics(current_fees, data)
@@ -255,7 +274,7 @@ class TestNSGA3OptimizerPhysicsCalculation:
 
     def test_calculate_physics_objectives_types(self, optimizer, optimization_request):
         """Test that objective values are floats."""
-        data = optimizer._convert_request_to_numpy(optimization_request)
+        data = optimizer._convert_zones_to_numpy(optimization_request.city.parking_zones)
         current_fees = data["current_current_fees"]
 
         results = optimizer._calculate_physics(current_fees, data)
@@ -266,7 +285,7 @@ class TestNSGA3OptimizerPhysicsCalculation:
 
     def test_calculate_physics_loss_aversion(self, optimizer, optimization_request):
         """Test that loss aversion affects current_fee increases more than decreases."""
-        data = optimizer._convert_request_to_numpy(optimization_request)
+        data = optimizer._convert_zones_to_numpy(optimization_request.city.parking_zones)
         base_current_fees = data["current_current_fees"]
 
         # 10% current_fee increase
@@ -292,10 +311,10 @@ class TestNSGA3OptimizerSimulation:
 
     def test_simulate_scenario_returns_four_objectives(self, optimizer, optimization_request):
         """Test that simulation returns exactly 4 objectives."""
-        data = optimizer._convert_request_to_numpy(optimization_request)
+        data = optimizer._convert_zones_to_numpy(optimization_request.city.parking_zones)
         current_fees = data["current_current_fees"]
 
-        f1, f2, f3, f4 = optimizer._simulate_scenario(current_fees, optimization_request)
+        f1, f2, f3, f4 = optimizer._simulate_scenario(current_fees, optimization_request.city.parking_zones)
 
         # Should return 4 float values
         assert isinstance(f1, (float, np.floating))
@@ -305,11 +324,11 @@ class TestNSGA3OptimizerSimulation:
 
     def test_simulate_scenario_consistent_with_physics(self, optimizer, optimization_request):
         """Test that simulation wrapper matches physics calculation."""
-        data = optimizer._convert_request_to_numpy(optimization_request)
+        data = optimizer._convert_zones_to_numpy(optimization_request.city.parking_zones)
         current_fees = data["current_current_fees"]
 
         # Get objectives from simulation
-        sim_objectives = optimizer._simulate_scenario(current_fees, optimization_request)
+        sim_objectives = optimizer._simulate_scenario(current_fees, optimization_request.city.parking_zones)
 
         # Get objectives from physics directly
         physics_results = optimizer._calculate_physics(current_fees, data)
@@ -325,29 +344,29 @@ class TestNSGA3OptimizerOptimization:
 
     def test_optimize_returns_valid_response(self, optimizer, optimization_request):
         """Test that optimize returns a valid OptimizationResponse."""
-        response = optimizer.optimize(optimization_request)
+        response = optimizer.optimize(optimization_request.city)
 
         # Check type
-        assert isinstance(response, OptimizationResponse)
+        assert isinstance(response, list)
 
-        # Check required fields
-        assert hasattr(response, 'scenarios')
+        # Check that it contains PricingScenarios
+        assert all(isinstance(s, PricingScenario) for s in response)
 
     def test_optimize_returns_multiple_scenarios(self, optimizer, optimization_request):
         """Test that optimize returns multiple Pareto-optimal scenarios."""
-        response = optimizer.optimize(optimization_request)
+        response = optimizer.optimize(optimization_request.city)
 
         # Should return at least one scenario
-        assert len(response.scenarios) >= 1
+        assert len(response) >= 1
 
         # Should return multiple scenarios (Pareto front)
-        assert len(response.scenarios) > 1
+        assert len(response) > 1
 
     def test_optimize_scenarios_have_valid_structure(self, optimizer, optimization_request):
         """Test that each scenario has the correct structure."""
-        response = optimizer.optimize(optimization_request)
+        response = optimizer.optimize(optimization_request.city)
 
-        for scenario in response.scenarios:
+        for scenario in response:
             # Check scenario structure
             assert isinstance(scenario, PricingScenario)
             assert hasattr(scenario, 'scenario_id')
@@ -358,14 +377,14 @@ class TestNSGA3OptimizerOptimization:
             assert hasattr(scenario, 'score_user_balance')
 
             # Check zone results
-            assert len(scenario.zones) == len(optimization_request.zones)
+            assert len(scenario.zones) == len(optimization_request.city.parking_zones)
 
     def test_optimize_respects_current_fee_bounds(self, optimizer, optimization_request):
         """Test that optimized current_fees respect min/max fee constraints."""
-        response = optimizer.optimize(optimization_request)
-        zones = optimization_request.zones
+        response = optimizer.optimize(optimization_request.city)
+        zones = optimization_request.city.parking_zones
 
-        for scenario in response.scenarios:
+        for scenario in response:
             for i, zone_result in enumerate(scenario.zones):
                 # Check that new fee is within bounds
                 assert zone_result.new_fee >= zones[i].min_fee
@@ -386,9 +405,20 @@ class TestNSGA3OptimizerOptimization:
             )
         ]
 
+        city = City(
+            id=1,
+            name="TestCity",
+            min_latitude=49.0,
+            max_latitude=49.02,
+            min_longitude=8.40,
+            max_longitude=8.42,
+            parking_zones=zones,
+            point_of_interests=[]
+        )
+
         request = OptimizationRequest(
-            zones=zones,
-            settings=OptimizationSettings(
+            city=city,
+            optimizer_settings=OptimizationSettings(
                 population_size=20,
                 generations=5,
                 target_occupancy=0.85
@@ -396,18 +426,18 @@ class TestNSGA3OptimizerOptimization:
         )
 
         # Run optimization twice with same seed
-        optimizer1 = NSGA3OptimizerElasticity(random_seed=123)
-        response1 = optimizer1.optimize(request)
+        optimizer1 = NSGA3OptimizerElasticity(OptimizationSettings(random_seed=123))
+        response1 = optimizer1.optimize(request.city)
 
-        optimizer2 = NSGA3OptimizerElasticity(random_seed=123)
-        response2 = optimizer2.optimize(request)
+        optimizer2 = NSGA3OptimizerElasticity(OptimizationSettings(random_seed=123))
+        response2 = optimizer2.optimize(request.city)
 
         # Results should be identical
-        assert len(response1.scenarios) == len(response2.scenarios)
+        assert len(response1) == len(response2)
 
         # Check first scenario matches
-        assert response1.scenarios[0].score_revenue == response2.scenarios[0].score_revenue
-        assert response1.scenarios[0].zones[0].new_fee == response2.scenarios[0].zones[0].new_fee
+        assert response1[0].score_revenue == response2[0].score_revenue
+        assert response1[0].zones[0].new_fee == response2[0].zones[0].new_fee
 
     def test_optimize_with_single_zone(self, optimizer):
         """Test optimization with a single parking zone."""
@@ -424,26 +454,37 @@ class TestNSGA3OptimizerOptimization:
             )
         ]
 
+        city = City(
+            id=1,
+            name="TestCity",
+            min_latitude=49.0,
+            max_latitude=49.02,
+            min_longitude=8.40,
+            max_longitude=8.42,
+            parking_zones=zones,
+            point_of_interests=[]
+        )
+
         request = OptimizationRequest(
-            zones=zones,
-            settings=OptimizationSettings(
+            city=city,
+            optimizer_settings=OptimizationSettings(
                 population_size=10,
                 generations=3
             )
         )
 
-        response = optimizer.optimize(request)
+        response = optimizer.optimize(request.city)
 
         # Should still work with single zone
-        assert len(response.scenarios) >= 1
-        assert len(response.scenarios[0].zones) == 1
+        assert len(response) >= 1
+        assert len(response[0].zones) == 1
 
     def test_optimize_zone_ids_preserved(self, optimizer, optimization_request):
         """Test that zone IDs are preserved in results."""
-        response = optimizer.optimize(optimization_request)
-        original_ids = {z.id for z in optimization_request.zones}
+        response = optimizer.optimize(optimization_request.city)
+        original_ids = {z.id for z in optimization_request.city.parking_zones}
 
-        for scenario in response.scenarios:
+        for scenario in response:
             result_ids = {z.id for z in scenario.zones}
             assert result_ids == original_ids
 
@@ -454,7 +495,7 @@ class TestNSGA3OptimizerBestSolutionSelection:
     @pytest.fixture
     def sample_response(self, optimizer, optimization_request):
         """Create a sample optimization response for testing."""
-        return optimizer.optimize(optimization_request)
+        return optimizer.optimize(optimization_request.city)
 
     def test_select_best_solution_returns_scenario(self, optimizer, sample_response):
         """Test that selection returns a valid scenario."""
@@ -463,7 +504,7 @@ class TestNSGA3OptimizerBestSolutionSelection:
         best = optimizer.select_best_solution_by_weights(sample_response, weights)
 
         assert isinstance(best, PricingScenario)
-        assert best in sample_response.scenarios
+        assert best in sample_response
 
     def test_select_best_solution_revenue_weight(self, optimizer, sample_response):
         """Test selection with 100% revenue weight."""
@@ -472,7 +513,7 @@ class TestNSGA3OptimizerBestSolutionSelection:
         best = optimizer.select_best_solution_by_weights(sample_response, weights)
 
         # Should select scenario with highest revenue
-        max_revenue = max(s.score_revenue for s in sample_response.scenarios)
+        max_revenue = max(s.score_revenue for s in sample_response)
         assert best.score_revenue == max_revenue
 
     def test_select_best_solution_balanced_weights(self, optimizer, sample_response):
@@ -483,7 +524,7 @@ class TestNSGA3OptimizerBestSolutionSelection:
 
         # Should return a scenario (exact scenario depends on normalization)
         assert best is not None
-        assert best in sample_response.scenarios
+        assert best in sample_response
 
     def test_select_best_solution_missing_weights(self, optimizer, sample_response):
         """Test selection with missing weights (should default to 0)."""
@@ -519,12 +560,18 @@ class TestNSGA3OptimizerBestSolutionSelection:
             )
         ]
 
-        request = OptimizationRequest(
-            zones=zones,
-            settings=OptimizationSettings(population_size=10, generations=2)
+        city = City(
+            id=1,
+            name="TestCity",
+            min_latitude=49.0,
+            max_latitude=49.02,
+            min_longitude=8.40,
+            max_longitude=8.42,
+            parking_zones=zones,
+            point_of_interests=[]
         )
 
-        response = optimizer.optimize(request)
+        response = optimizer.optimize(city)
         weights = {"revenue": 50, "occupancy": 50}
 
         best = optimizer.select_best_solution_by_weights(response, weights)
@@ -551,23 +598,29 @@ class TestNSGA3OptimizerEdgeCases:
             )
         ]
 
-        request = OptimizationRequest(
-            zones=zones,
-            settings=OptimizationSettings(population_size=20, generations=5)
+        city = City(
+            id=1,
+            name="TestCity",
+            min_latitude=49.0,
+            max_latitude=49.02,
+            min_longitude=8.40,
+            max_longitude=8.42,
+            parking_zones=zones,
+            point_of_interests=[]
         )
 
         # Run with different seeds
-        optimizer1 = NSGA3OptimizerElasticity(random_seed=1)
-        response1 = optimizer1.optimize(request)
+        optimizer1 = NSGA3OptimizerElasticity(OptimizationSettings(random_seed=1))
+        response1 = optimizer1.optimize(city)
 
-        optimizer2 = NSGA3OptimizerElasticity(random_seed=2)
-        response2 = optimizer2.optimize(request)
+        optimizer2 = NSGA3OptimizerElasticity(OptimizationSettings(random_seed=2))
+        response2 = optimizer2.optimize(city)
 
         # Results should differ (at least in some scenarios)
         # Note: With genetic algorithms, there's a small chance they could be identical
         # but with different seeds, it's highly unlikely
-        current_fees1 = [s.zones[0].new_fee for s in response1.scenarios]
-        current_fees2 = [s.zones[0].new_fee for s in response2.scenarios]
+        current_fees1 = [s.zones[0].new_fee for s in response1]
+        current_fees2 = [s.zones[0].new_fee for s in response2]
 
         # At least one current_fee should differ
         assert current_fees1 != current_fees2
@@ -587,18 +640,24 @@ class TestNSGA3OptimizerEdgeCases:
             )
         ]
 
-        request = OptimizationRequest(
-            zones=zones,
-            settings=OptimizationSettings(population_size=10, generations=3)
+        city = City(
+            id=1,
+            name="TestCity",
+            min_latitude=49.0,
+            max_latitude=49.02,
+            min_longitude=8.40,
+            max_longitude=8.42,
+            parking_zones=zones,
+            point_of_interests=[]
         )
 
-        response = optimizer.optimize(request)
+        response = optimizer.optimize(city)
 
         # Should complete without errors
-        assert len(response.scenarios) >= 1
+        assert len(response) >= 1
 
         # All current_fees should be within tight bounds
-        for scenario in response.scenarios:
+        for scenario in response:
             assert 2.9 <= scenario.zones[0].new_fee <= 3.1
 
     def test_optimizer_with_fully_occupied_zone(self, optimizer):
@@ -616,15 +675,21 @@ class TestNSGA3OptimizerEdgeCases:
             )
         ]
 
-        request = OptimizationRequest(
-            zones=zones,
-            settings=OptimizationSettings(population_size=10, generations=3)
+        city = City(
+            id=1,
+            name="TestCity",
+            min_latitude=49.0,
+            max_latitude=49.02,
+            min_longitude=8.40,
+            max_longitude=8.42,
+            parking_zones=zones,
+            point_of_interests=[]
         )
 
-        response = optimizer.optimize(request)
+        response = optimizer.optimize(city)
 
         # Should complete and suggest higher current_fees for full zone
-        assert len(response.scenarios) >= 1
+        assert len(response) >= 1
 
     def test_optimizer_with_empty_zone(self, optimizer):
         """Test optimization with an empty parking zone."""
@@ -641,12 +706,18 @@ class TestNSGA3OptimizerEdgeCases:
             )
         ]
 
-        request = OptimizationRequest(
-            zones=zones,
-            settings=OptimizationSettings(population_size=10, generations=3)
+        city = City(
+            id=1,
+            name="TestCity",
+            min_latitude=49.0,
+            max_latitude=49.02,
+            min_longitude=8.40,
+            max_longitude=8.42,
+            parking_zones=zones,
+            point_of_interests=[]
         )
 
-        response = optimizer.optimize(request)
+        response = optimizer.optimize(city)
 
         # Should complete and suggest lower current_fees for empty zone
-        assert len(response.scenarios) >= 1
+        assert len(response) >= 1

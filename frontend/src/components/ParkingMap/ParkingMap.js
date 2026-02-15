@@ -13,8 +13,37 @@ L.Icon.Default.mergeOptions({
   shadowUrl: require('leaflet/dist/images/marker-shadow.png'),
 });
 
+// ===== HELPER FUNCTIONS =====
+const getColorFromOccupancy = (occupancyRate) => {
+  // Clamp occupancy rate between 0 and 1
+  const rate = Math.max(0, Math.min(1, occupancyRate));
+  
+  // Define colors: Green (0%), Yellow (50%), Red (100%)
+  const green = { r: 39, g: 174, b: 96 };
+  const yellow = { r: 243, g: 156, b: 18 };
+  const red = { r: 231, g: 76, b: 60 };
+  
+  let r, g, b;
+  
+  if (rate <= 0.5) {
+    // Interpolate between green and yellow (0% to 50%)
+    const t = rate * 2; // Scale to 0-1 for this range
+    r = Math.round(green.r + (yellow.r - green.r) * t);
+    g = Math.round(green.g + (yellow.g - green.g) * t);
+    b = Math.round(green.b + (yellow.b - green.b) * t);
+  } else {
+    // Interpolate between yellow and red (50% to 100%)
+    const t = (rate - 0.5) * 2; // Scale to 0-1 for this range
+    r = Math.round(yellow.r + (red.r - yellow.r) * t);
+    g = Math.round(yellow.g + (red.g - yellow.g) * t);
+    b = Math.round(yellow.b + (red.b - yellow.b) * t);
+  }
+  
+  return `rgb(${r}, ${g}, ${b})`;
+};
+
 // ===== COMPONENT =====
-const ParkingMap = ({ zones, selectedZoneId, onZoneClick, isLoading, error }) => {
+const ParkingMap = ({ zones, selectedZoneId, onZoneClick, isLoading, loadingMessage = 'Loading parking zones...', error, isPickingLocation, onLocationPicked }) => {
   // ===== STATE =====
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
@@ -48,6 +77,31 @@ const ParkingMap = ({ zones, selectedZoneId, onZoneClick, isLoading, error }) =>
     }
   }, [mapCenter]);
 
+  // Handle location picking mode
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+
+    if (isPickingLocation) {
+      // Change cursor to crosshair
+      mapInstanceRef.current.getContainer().style.cursor = 'crosshair';
+      
+      // Add click handler for picking location
+      const handleMapClick = (e) => {
+        const { lat, lng } = e.latlng;
+        onLocationPicked(lat, lng);
+      };
+      
+      mapInstanceRef.current.on('click', handleMapClick);
+      
+      return () => {
+        mapInstanceRef.current.off('click', handleMapClick);
+        mapInstanceRef.current.getContainer().style.cursor = '';
+      };
+    } else {
+      mapInstanceRef.current.getContainer().style.cursor = '';
+    }
+  }, [isPickingLocation, onLocationPicked]);
+
   useEffect(() => {
     if (!mapInstanceRef.current || !zones) return;
 
@@ -62,18 +116,8 @@ const ParkingMap = ({ zones, selectedZoneId, onZoneClick, isLoading, error }) =>
 
       if (!lat || !lon) return;
 
-      let color = '#3388ff';
       const occupancyRate = (zone.current_capacity / zone.maximum_capacity) ?? 0;
-      
-      if (occupancyRate >= 0.85) {
-        color = '#e74c3c';
-      } else if (occupancyRate >= 0.65) {
-        color = '#f39c12';
-      } else if (occupancyRate >= 0.3) {
-        color = '#27ae60';
-      } else {
-        color = '#9b59b6';
-      }
+      const color = getColorFromOccupancy(occupancyRate);
 
       const marker = L.circleMarker([lat, lon], {
         radius: 8,
@@ -100,9 +144,14 @@ const ParkingMap = ({ zones, selectedZoneId, onZoneClick, isLoading, error }) =>
       `;
 
       marker.bindPopup(popupContent);
-      marker.on('click', () => {
-        onZoneClick(zone.id);
-        marker.openPopup();
+      marker.on('click', (e) => {
+        if (!isPickingLocation) {
+          onZoneClick(zone.id);
+          marker.openPopup();
+        } else {
+          // Prevent zone selection when picking location
+          L.DomEvent.stopPropagation(e);
+        }
       });
 
       marker.addTo(mapInstanceRef.current);
@@ -126,7 +175,14 @@ const ParkingMap = ({ zones, selectedZoneId, onZoneClick, isLoading, error }) =>
     <div ref={mapRef} className="parking-map">
       {isLoading && (
         <div className="parking-map-loading">
-          <p>Loading parking zones...</p>
+          <p>{loadingMessage}</p>
+        </div>
+      )}
+      {isPickingLocation && (
+        <div className="parking-map-picking-overlay">
+          <div className="parking-map-picking-message">
+            📍 Click on the map to select a location
+          </div>
         </div>
       )}
     </div>

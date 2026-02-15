@@ -1,8 +1,18 @@
+import sys
 import os
+from pathlib import Path
 
-current_dir = os.path.dirname(os.path.abspath(__file__))
+# Add parent directory to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# --- 1. PATH CONFIGURATION ---
+# Add the 'backend' directory to the system path so Python can find our custom modules.
+current_file_path = os.path.abspath(__file__)           # .../backend/Tests/run_Karlsruhe.py
+current_dir = os.path.dirname(current_file_path)        # .../backend/Tests
+backend_dir = os.path.dirname(current_dir)              # .../backend
 
-from backend.services.optimizer.schemas.optimization_schema import OptimizationRequest, OptimizationSettings, ParkingZone
+from backend.services.settings.optimizations_settings import OptimizationSettings
+from backend.services.models.city import ParkingZone, City
+from backend.services.payloads.optimization_payload import OptimizationRequest
 from backend.services.optimizer.nsga3_optimizer_elasticity import NSGA3OptimizerElasticity
 
 def run_ultimate_table_test():
@@ -39,18 +49,27 @@ def run_ultimate_table_test():
         )
     ]
 
-    req = OptimizationRequest(
-        zones=zones,
-        settings=OptimizationSettings(population_size=500, generations=80, target_occupancy=0.85)
+    # Create a City object with the zones
+    city = City(
+        id=1,
+        name="Simple Test City",
+        min_latitude=0.0,
+        max_latitude=1.0,
+        min_longitude=0.0,
+        max_longitude=1.0,
+        parking_zones=zones
     )
+
+    # Create optimizer settings
+    settings = OptimizationSettings(population_size=500, generations=80, target_occupancy=0.85)
 
     # 2. BERECHNUNG
     print("... Algorithmus rechnet ...")
-    optimizer = NSGA3OptimizerElasticity()
-    result = optimizer.optimize(req)
+    optimizer = NSGA3OptimizerElasticity(settings)
+    scenarios = optimizer.optimize(city)
     
     # Wir sortieren nach Gewinn, damit es übersichtlich bleibt
-    sorted_scenarios = sorted(result.scenarios, key=lambda x: x.score_revenue, reverse=True)
+    sorted_scenarios = sorted(scenarios, key=lambda x: x.score_revenue, reverse=True)
 
     print(f"\nGEFUNDENE LÖSUNGEN: {len(sorted_scenarios)}\n")
 

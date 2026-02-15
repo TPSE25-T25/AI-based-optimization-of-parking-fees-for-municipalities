@@ -37,33 +37,56 @@
 
 .optimizer-row {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 15px;
+  width: 100%;
+}
+
+.optimizer-controls-row {
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  align-items: stretch;
 }
 
 .optimizer-label {
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
 }
 
 .optimizer-select {
-  padding: 6px 8px;
-  font-size: 12px;
-  border: 1px solid #ddd;
-  border-radius: 3px;
+  flex: 1;
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 1px solid #ccc;
+  border-radius: 4px 0 0 4px;
+  border-right: none;
+}
+
+.optimizer-select:focus {
+  outline: none;
+  border-color: #2b80ff;
+  box-shadow: 0 0 0 2px rgba(43, 128, 255, 0.1);
+  z-index: 1;
+  position: relative;
 }
 
 .optimizer-button {
-  padding: 6px 12px;
-  font-size: 12px;
+  width: 40px;
+  padding: 0;
+  font-size: 18px;
   cursor: pointer;
   background: #2b80ff;
   color: #fff;
-  border: none;
-  border-radius: 3px;
-  font-weight: 500;
+  border: 1px solid #2b80ff;
+  border-radius: 0 4px 4px 0;
+  font-weight: 600;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .optimizer-button:hover:not(:disabled) {
@@ -257,37 +280,111 @@
 
 /* Results Management Buttons: for the optimization results */
 .results-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 0.5rem;
-  padding: 1rem;
+  padding: 1rem 0 0 0;
   border-top: 1px solid #ddd;
   margin-top: auto;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .results-button {
-  flex: 1;
-  padding: 0.75rem;
-  background-color: #f0f0f0;
-  border: 1px solid #ddd;
-  border-radius: 3px;
+  min-width: 0;
+  padding: 0.75rem 0.5rem;
+  background-color: #2b80ff;
+  color: #fff;
+  border: 1px solid #2b80ff;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   transition: all 0.2s ease;
+  box-sizing: border-box;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .results-button:hover:not(:disabled) {
-  background-color: #e0e0e0;
-  border-color: #999;
+  background-color: #1a6fd9;
+  border-color: #1a6fd9;
 }
 
 .results-button:disabled {
-  opacity: 0.5;
+  opacity: 0.6;
   cursor: not-allowed;
+}
+
+.results-button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* Style for select dropdown in results-actions */
+select.results-button {
+  background-color: #2b80ff;
+  color: #fff;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 1em;
+  padding-right: 2rem;
+}
+
+select.results-button option {
+  background-color: #fff;
+  color: #333;
 }
 
 .load-button {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.modal-content {
+  background: white;
+  padding: 30px;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  min-width: 300px;
+  max-width: 500px;
+  text-align: center;
+}
+
+.modal-content p {
+  margin: 0 0 20px 0;
+  font-size: 16px;
+  color: #333;
+}
+
+.modal-content button {
+  padding: 10px 30px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.modal-content button:hover {
+  background-color: #0056b3;
 }

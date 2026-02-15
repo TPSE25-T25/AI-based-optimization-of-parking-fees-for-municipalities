@@ -4,9 +4,9 @@ Unit tests for driver generator module.
 
 import pytest
 
-from backend.models.city import City, PointOfInterest
-from backend.models.driver import Driver
-from backend.services.data.generator.driver_generator import DriverGenerator
+from backend.services.models.city import City, PointOfInterest
+from backend.services.models.driver import Driver
+from backend.services.datasources.generator.driver_generator import DriverGenerator
 
 
 @pytest.fixture

@@ -4,8 +4,7 @@ Handles basic file operations with focus on JSON files
 """
 
 import json
-import shutil
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, List, Optional, Union
 from pathlib import Path
 
 

@@ -1,7 +1,6 @@
 .configuration-panel {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .configuration-form {
@@ -11,21 +10,33 @@
   padding: 1rem;
   gap: 1rem;
   overflow: visible;
+  box-sizing: border-box;
+  width: 100%;
 }
 
 .configuration-inputs {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 15px;
   flex: 1;
   overflow: visible;
+}
+
+.configuration-section-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: #2b80ff;
+  margin-top: 10px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #2b80ff;
 }
 
 .configuration-input-group {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 8px;
   position: relative;
+  width: 100%;
 }
 
 .configuration-form label {
@@ -60,10 +71,12 @@
 }
 
 .configuration-form input {
-  padding: 0.5rem;
-  border-radius: 0.25rem;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 4px;
   border: 1px solid #ccc;
   font-size: 13px;
+  box-sizing: border-box;
 }
 
 .configuration-form input:focus {
@@ -72,25 +85,42 @@
   box-shadow: 0 0 0 2px rgba(43, 128, 255, 0.1);
 }
 
+/* Override for inputs in optimizer-controls-row to blend with button */
+.optimizer-controls-row input.optimizer-select {
+  border-radius: 4px 0 0 4px !important;
+  border-right: none;
+}
+
 .configuration-actions {
   display: flex;
-  gap: 1rem;
+  gap: 0.5rem;
   padding-top: 1rem;
   border-top: 1px solid #ddd;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .configuration-actions button {
   flex: 1;
-  padding: 0.5rem;
-  border-radius: 0.25rem;
+  min-width: 0;
+  padding: 0.75rem 0.5rem;
+  border-radius: 4px;
   border: 1px solid #2b80ff;
-  background-color: #e6f2ff;
+  background-color: #2b80ff;
+  color: #fff;
   font-weight: 500;
+  font-size: 13px;
   cursor: pointer;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .configuration-actions button:hover {
-  background-color: #cce5ff;
+  background-color: #1a6fd9;
+  border-color: #1a6fd9;
 }
 
 .configuration-actions button:active {

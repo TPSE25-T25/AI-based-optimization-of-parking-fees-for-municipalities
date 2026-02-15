@@ -5,11 +5,12 @@ This optimizer uses current_fee elasticity calculations for fast evaluation,
 incorporating behavioral economics (loss aversion, user groups).
 """
 
-from typing import Tuple
+from typing import List, Tuple
 import numpy as np
 
-from backend.services.optimizer.schemas.optimization_schema import OptimizationRequest
+from backend.services.models.city import ParkingZone
 from backend.services.optimizer.nsga3_optimizer import NSGA3Optimizer
+from backend.services.settings.optimizations_settings import OptimizationSettings
 
 
 class NSGA3OptimizerElasticity(NSGA3Optimizer):
@@ -28,14 +29,14 @@ class NSGA3OptimizerElasticity(NSGA3Optimizer):
     - Physical constraints (occupancy bounded to 0.05-1.0)
     """
 
-    def __init__(self, random_seed: int = 1):
+    def __init__(self, optimizer_settings: OptimizationSettings):
         """
         Initialize the elasticity-based optimizer.
 
         Args:
             random_seed: Seed for reproducibility (default: 1 for backward compatibility)
         """
-        super().__init__(random_seed=random_seed)
+        super().__init__(optimizer_settings)
 
     def _calculate_physics(self, current_fees: np.ndarray, data: dict) -> dict:
         """
@@ -140,19 +141,19 @@ class NSGA3OptimizerElasticity(NSGA3Optimizer):
             "revenue": results["revenue"]
         }
 
-    def _simulate_scenario(self, current_fees: np.ndarray, request: OptimizationRequest) -> Tuple[float, float, float, float]:
+    def _simulate_scenario(self, current_fees: np.ndarray, zones: List[ParkingZone]) -> Tuple[float, float, float, float]:
         """
         Evaluate a current_fee vector using elasticity model.
 
         Args:
             current_fees: current_fee vector for all zones
-            request: Optimization request
+            zones: List of ParkingZone objects
 
         Returns:
             Tuple of (revenue, occupancy_gap, demand_drop, user_balance)
         """
         # 1. Data Preparation
-        data = self._convert_request_to_numpy(request)
+        data = self._convert_zones_to_numpy(zones)
 
         # 2. Physics Simulation using elasticity
         results = self._calculate_physics(current_fees, data)

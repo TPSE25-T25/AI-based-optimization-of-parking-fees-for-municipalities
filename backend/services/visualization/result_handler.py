@@ -10,7 +10,7 @@ Eliminates code duplication between different optimization runners.
 """
 
 import os
-from typing import Callable, Optional
+from typing import Optional
 import folium
 from folium.plugins import MarkerCluster
 
