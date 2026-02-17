@@ -4,7 +4,7 @@ Unit tests for City and PointOfInterest models
 
 import pytest
 from pydantic import ValidationError
-from backend.models.city import City, PointOfInterest, ParkingZone
+from backend.services.models.city import City, PointOfInterest, ParkingZone
 
 
 class TestPointOfInterest:

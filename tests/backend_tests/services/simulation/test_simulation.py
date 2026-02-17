@@ -4,15 +4,15 @@ Unit tests for parking simulation module.
 
 import pytest
 
-from backend.models.city import City, PointOfInterest, ParkingZone
-from backend.models.driver import Driver
+from backend.services.models.city import City, PointOfInterest, ParkingZone
+from backend.services.models.driver import Driver
 from backend.services.simulation.simulation import (
     ParkingSimulation, 
     DriverDecision, 
     SimulationMetrics,
     SimulationBatch
 )
-from backend.services.data.generator.driver_generator import DriverGenerator
+from backend.services.datasources.generator.driver_generator import DriverGenerator
 
 
 @pytest.fixture
@@ -98,7 +98,7 @@ class TestDriverDecision:
     def test_closer_lot_preferred(self, test_driver, lot1, lot2):
         """Test that closer lot to destination is preferred when current_fees similar."""
         decision = DriverDecision(
-            current_fee_weight=0.1,
+            fee_weight=0.1,
             walking_distance_weight=10.0  # Heavy weight on proximity
         )
         

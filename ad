@@ -1,0 +1,186 @@
+[1mdiff --cc backend/main.py[m
+[1mindex 3f8fac5,36a3a48..6005c97[m
+[1m--- a/backend/main.py[m
+[1m+++ b/backend/main.py[m
+[36m@@@ -1,27 -1,13 +1,36 @@@[m
+[31m- import sys[m
+[31m- from pathlib import Path[m
+[31m- [m
+[31m- # Add the backend directory to sys.path[m
+[31m- backend_dir = Path(__file__).parent[m
+[31m- if str(backend_dir) not in sys.path:[m
+[31m-     sys.path.append(str(backend_dir))[m
+[31m -from fastapi import FastAPI[m
+[32m++from __future__ import annotations[m
+[32m +[m
+[31m- # Add the project root directory to sys.path[m
+[31m- project_root = backend_dir.parent[m
+[31m- if str(project_root) not in sys.path:[m
+[31m-     sys.path.append(str(project_root))[m
+[32m++from pathlib import Path[m
+[32m++from typing import List[m
+[32m +[m
+[32m +from fastapi import FastAPI, HTTPException[m
+  from fastapi.middleware.cors import CORSMiddleware[m
+  from pydantic import BaseModel[m
+[31m- from typing import List, Optional[m
+[31m- from services.data.karlsruhe_loader import KarlsruheLoader[m
+[31m- from backend.services.optimizer.schemas.optimization_schema import ParkingZone[m
+[31m- from backend.services.optimizer.schemas.optimization_schema import OptimizationRequest, OptimizationResponse, PricingScenario, WeightSelectionRequest, OptimizationSettings[m
+[31m- from backend.services.optimizer.nsga3_optimizer_elasticity import NSGA3OptimizerElasticity[m
+[31m- from backend.services.optimizer.nsga3_optimizer_agent import NSGA3OptimizerAgentBased[m
+[31m -from typing import List[m
+  [m
+[31m- app = FastAPI(title="Parking Fee Optimization API", version="1.0.0")[m
+[32m++# ✅ Admin router[m
+[32m++from backend.services.admin.api import router as admin_router[m
+[32m++[m
+[32m++# ✅ Admin config access for other modules[m
+[32m++from backend.services.admin.config_repository import ConfigRepository[m
+[32m++from backend.services.admin.config_service import ConfigService[m
+[32m++from backend.services.io.file_manager import FileManager[m
+[32m++[m
+[32m++# ✅ Optimization schemas (you created backend/models/optimization_schemas.py)[m
+[32m++from backend.models.optimization_schemas import ([m
+[32m++    OptimizationRequest,[m
+[32m++    OptimizationResponse,[m
+[32m++    PricingScenario,[m
+[32m++    OptimizedZoneResult,[m
+[32m++)[m
+[32m++[m
+[32m++# ----------------------------------------[m
+[32m++# FastAPI app MUST be defined before routes[m
+[32m++# ----------------------------------------[m
+[32m+ app = FastAPI([m
+[31m -    title="Parking Fee Optimization API", [m
+[32m++    title="Parking Fee Optimization API",[m
+[32m+     version="1.0.0",[m
+[31m -    description="API for parking fee optimization"[m
+[32m++    description="API for parking fee optimization",[m
+[32m+ )[m
+  [m
+  # Configure CORS[m
+  app.add_middleware([m
+[36m@@@ -32,107 -18,78 +41,176 @@@[m
+      allow_headers=["*"],[m
+  )[m
+  [m
+[32m++# Register admin endpoints (e.g. /admin/config)[m
+[32m++app.include_router(admin_router)[m
+[32m++[m
+[32m++# ----------------------------------------[m
+[32m++# Admin config service (used by optimize endpoints)[m
+[32m++# ----------------------------------------[m
+[32m++REPO_ROOT = Path(__file__).resolve().parents[1]  # repo_root/backend/main.py -> parents[1] = repo_root[m
+[32m++ADMIN_CONFIG_PATH = REPO_ROOT / "backend" / "data" / "config" / "admin_config.json"[m
+[32m++_admin_service = ConfigService(ConfigRepository(FileManager(), config_path=str(ADMIN_CONFIG_PATH)))[m
+[32m++[m
+[32m+ [m
+[31m -# Pydantic models[m
+[32m++# -----------------------[m
+[32m++# Pydantic models (demo)[m
+[32m++# -----------------------[m
+[32m+ class ParkingZone(BaseModel):[m
+[32m+     id: int[m
+[32m+     name: str[m
+[32m+     current_fee: float[m
+[32m+     occupancy_rate: float[m
+[32m+     suggested_fee: float[m
+  [m
+[31m- # Config [m
+[31m- source = "mobidata" # or "mobidata"[m
+[31m- limit = 3000  # Max limit for MobiData API[m
+[32m +[m
+[31m- # Cache for loaded Karlsruhe parking zones[m
+[31m- parking_zones: List[ParkingZone] = [][m
+[31m- loader = KarlsruheLoader(source=source)[m
+[31m- agent_optimizer = NSGA3OptimizerAgentBased()[m
+[31m- elasticity_optimizer = NSGA3OptimizerElasticity()[m
+[32m+ class FeeOptimizationRequest(BaseModel):[m
+[32m+     zone_id: int[m
+[32m+     target_occupancy: float[m
+  [m
+[32m++[m
+[32m+ # Sample data[m
+[32m+ parking_zones = [[m
+[32m+     ParkingZone(id=1, name="Downtown", current_fee=2.5, occupancy_rate=0.85, suggested_fee=3.0),[m
+[32m+     ParkingZone(id=2, name="Shopping District", current_fee=1.5, occupancy_rate=0.95, suggested_fee=2.0),[m
+[32m+     ParkingZone(id=3, name="Residential", current_fee=1.0, occupancy_rate=0.60, suggested_fee=0.8),[m
+[32m+ ][m
+[32m+ [m
+[32m++[m
+[32m++# -----------------------[m
+[32m++# Basic endpoints[m
+[32m++# -----------------------[m
+  @app.get("/")[m
+  async def root():[m
+      return {"message": "Parking Fee Optimization API is running"}[m
+  [m
+[32m++[m
+  @app.get("/health")[m
+  async def health_check():[m
+      return {"status": "healthy"}[m
+  [m
+[31m- # frontend now pulls the settings metadata dynamically from [m
+[31m- # a new backend endpoint and uses it for defaults, min/max, [m
+[31m- #and descriptions[m
+[31m- @app.get("/optimization-settings")[m
+[31m- async def get_optimization_settings():[m
+[31m-     """Expose optimization settings defaults/limits for the frontend ConfigurationPanel."""[m
+[31m-     fields = getattr(OptimizationSettings, "model_fields", None) or OptimizationSettings.__fields__[m
+[31m- [m
+[31m-     def serialize_field(field):[m
+[31m-         info = getattr(field, "field_info", None)[m
+[31m-         return {[m
+[31m-             "default": getattr(info, "default", None) if info else getattr(field, "default", None),[m
+[31m-             "min": getattr(info, "ge", None),[m
+[31m-             "max": getattr(info, "le", None),[m
+[31m-             "description": getattr(info, "description", None),[m
+[31m-         }[m
+[31m- [m
+[31m-     return {name: serialize_field(field) for name, field in fields.items()}[m
+[32m +[m
+  @app.get("/zones", response_model=List[ParkingZone])[m
+  async def get_parking_zones():[m
+[31m-     """Return all parking zones for the map (used on initial frontend load)."""[m
+[31m-     global parking_zones[m
+[31m- [m
+[31m-     # Serve cached data if already loaded[m
+[31m-     if parking_zones:[m
+[31m-         return parking_zones[m
+[31m- [m
+[31m-     try:[m
+[31m-         # Load city model which contains parking zones[m
+[31m-         city = loader.load_city(limit=limit)[m
+[31m-         parking_zones = city.parking_zones[m
+[31m-         [m
+[31m-         if not parking_zones:[m
+[31m-             raise HTTPException(status_code=502, detail="No parking data returned for Karlsruhe")[m
+[31m- [m
+[31m-     except HTTPException:[m
+[31m-         raise[m
+[31m-     except Exception as exc:[m
+[31m-         import traceback[m
+[31m-         error_details = traceback.format_exc()[m
+[31m-         print(f"Load failed with error: {exc}")[m
+[31m-         print(f"Full traceback:\n{error_details}")[m
+[31m-         raise HTTPException(status_code=502, detail=f"Load failed for Karlsruhe: {str(exc)}")[m
+[31m- [m
+[31m -    """Get all parking zones with current fees and optimization suggestions"""[m
+      return parking_zones[m
+  [m
+[32m++[m
+  @app.get("/zones/{zone_id}", response_model=ParkingZone)[m
+  async def get_parking_zone(zone_id: int):[m
+[31m--    """Get a specific parking zone by ID"""[m
+      for zone in parking_zones:[m
+          if zone.id == zone_id:[m
+              return zone[m
+[31m--    return {"error": "Zone not found"}[m
+[31m- [m
+[31m- @app.post("/optimize_elasticity", response_model=OptimizationResponse)[m
+[31m- async def optimize_fee_elasticity(request: OptimizationRequest):[m
+[31m-     """Run NSGA-III optimization (elasticity model) and return Pareto scenarios."""[m
+[31m-     #Create an instance of the NSGA3Optimizer[m
+[31m-     [m
+[31m-     #Call the optimize method and return th

@@ -4,7 +4,7 @@ Unit tests for Driver model
 
 import pytest
 from pydantic import ValidationError
-from backend.models.driver import Driver
+from backend.services.models.driver import Driver
 
 
 class TestDriver:

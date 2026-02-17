@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import Any, List, Tuple, Dict
+from dataclasses import Field
+from typing import List, Tuple
 import numpy as np
-import time
-from pymoo.algorithms.moo.nsga3 import NSGA3  # Der Algorithmus selbst
+from pymoo.algorithms.moo.nsga3 import NSGA3
 from pymoo.core.problem import ElementwiseProblem
 from pymoo.optimize import minimize
 from pymoo.util.ref_dirs import get_reference_directions
@@ -11,7 +11,11 @@ from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.sampling.rnd import FloatRandomSampling
 from pymoo.operators.mutation.pm import PM
 
-from backend.services.optimizer.schemas.optimization_schema import OptimizationRequest, OptimizationResponse, PricingScenario, OptimizedZoneResult
+from backend.services.models.city import City, ParkingZone
+from backend.services.optimizer.schemas.optimization_schema import PricingScenario, OptimizedZoneResult
+from backend.services.settings.optimizations_settings import OptimizationSettings
+from backend.services.optimizer.solution_selector import SolutionSelector
+
 
 class NSGA3Optimizer(ABC):
     """ 
@@ -25,21 +29,25 @@ class NSGA3Optimizer(ABC):
     - NSGA3OptimizerAgentBased: Agent-based simulation evaluation
     """
 
-    def __init__(self, random_seed: int = 1):
+    def __init__(self, optimizer_settings: OptimizationSettings):
         """
         Initialize the base optimizer.
 
         Args:
-            random_seed: Seed for reproducibility
+            optimizer_settings: Configuration for the optimization process (population size, generations, etc.)
         """
-        self.random_seed = random_seed
+        self.random_seed = optimizer_settings.random_seed
+        self.population_size = optimizer_settings.population_size
+        self.generations = optimizer_settings.generations
+        self.target_occupancy = optimizer_settings.target_occupancy
+        self.min_fee = optimizer_settings.min_fee
+        self.max_fee = optimizer_settings.max_fee
+        self.fee_increment = optimizer_settings.fee_increment
 
-    def _convert_request_to_numpy(self, request: OptimizationRequest) -> dict:
+    def _convert_zones_to_numpy(self, zones: List[ParkingZone]) -> dict:
         """
         Helper Method: Converts the complex Pydantic request object into flat Numpy arrays.
         """
-        zones = request.zones
-
         data = {                                                                    #Dictionary to hold all extracted data
 
             "current_current_fees": np.array([float(z.current_fee) for z in zones]),            # Current current_fees for all zones
@@ -53,12 +61,12 @@ class NSGA3Optimizer(ABC):
             "elasticities": np.array([z.elasticity for z in zones]),                # elasticities of all zones
             "current_occupancy": np.array([z.current_capacity / z.maximum_capacity if z.maximum_capacity > 0 else 0.0 for z in zones]),    # current occupancy of all zones
             "short_term_share": np.array([z.short_term_share for z in zones]),       # short term share of all zones
-            "target_occupancy": request.settings.target_occupancy                     # target occupancy from settings
+            "target_occupancy": self.target_occupancy                     # target occupancy from settings
         }
         return data
 
     @abstractmethod
-    def _simulate_scenario(self, current_fees: np.ndarray, request: OptimizationRequest) -> Tuple[float, float, float, float]:
+    def _simulate_scenario(self, current_fees: np.ndarray, zones: List[ParkingZone]) -> Tuple[float, float, float, float]:
         """
         Evaluate a current_fee vector and return objectives.
 
@@ -67,7 +75,7 @@ class NSGA3Optimizer(ABC):
 
         Args:
             current_fees: current_fee vector for all zones
-            request: Optimization request with zones and settings
+            zones: List of ParkingZone objects representing the zones
 
         Returns:
             Tuple of (revenue, occupancy_gap, demand_drop, user_balance)
@@ -94,53 +102,57 @@ class NSGA3Optimizer(ABC):
         pass
 
 
-    def optimize(self, request: OptimizationRequest) -> OptimizationResponse:
-        # Record start time
-        start_time = time.time()
-
+    def optimize(self,  city: City) -> List[PricingScenario]:
         # Step 1: Extract zone data
-        data = self._convert_request_to_numpy(request)
+        data = self._convert_zones_to_numpy(city.parking_zones)
 
         # Number of decision variables = number of zones
-        n_vars = len(request.zones)
+        n_vars = len(city.parking_zones)
 
         # Step 2: Set current_fee bounds per zone
         xl = data["min_fees"]
         xu = data["max_fees"]
+                
+        def round_to_increment(fees, increment, min_fees, max_fees):
+            """Round fees to nearest increment and ensure within bounds."""
+            if increment <= 0:
+                return fees
+            rounded = np.round(fees / increment) * increment
+            return np.clip(rounded, min_fees, max_fees)
 
         """ The ParkingProblem class acts as an adapter... """
         class ParkingProblem(ElementwiseProblem):
-            def __init__(self, optimizer_instance, req):
+            def __init__(self, optimizer_instance):
                 # n_var = number of zones
                 super().__init__(n_var=n_vars, n_obj=4, n_ieq_constr=0, xl=xl, xu=xu)
                 self.optimizer = optimizer_instance
-                self.req = req
 
             def _evaluate(self, x, out, *args, **kwargs):
-                # x contains current_fees directly for each zone
-                f1, f2, f3, f4 = self.optimizer._simulate_scenario(x, self.req)
+                # Round fees to discrete increments before evaluation
+                x_rounded = round_to_increment(x, self.optimizer.fee_increment, xl, xu)
+                
+                # x_rounded contains current_fees snapped to valid increments
+                f1, f2, f3, f4 = self.optimizer._simulate_scenario(x_rounded, city.parking_zones)
 
                 out["F"] = [-f1, f2, f3, f4]
 
         # create an instance of the problem
-        problem = ParkingProblem(self, request)
+        problem = ParkingProblem(self)
 
         """"Algorithm Cofiguration (NSGA-III)"""
         # ... (Dieser Teil bleibt EXAKT gleich wie vorher) ...
         ref_dirs = get_reference_directions("das-dennis", 4, n_partitions=8)
-        pop_size = request.settings.population_size
-        n_gen = request.settings.generations
-        
+
         algorithm = NSGA3(
-            pop_size=pop_size,
+            pop_size=self.population_size,
             ref_dirs=ref_dirs,
-            n_offsprings= int(pop_size/2),
+            n_offsprings= int(self.population_size/2),
             sampling=FloatRandomSampling(),
             crossover=SBX(prob=0.9, eta=15),
             mutation=PM(prob=1.0/n_vars, eta=20),
             eliminate_duplicates=True
         )
-        termination = get_termination("n_gen", n_gen) # stops after a fixed number of generations
+        termination = get_termination("n_gen", self.generations) # stops after a fixed number of generations
 
 
         """ Execution of the Optimization Algorithm (NSGA-III)"""
@@ -162,19 +174,22 @@ class NSGA3Optimizer(ABC):
         F = np.atleast_2d(res.F)
 
         for i, (current_fees, objectives) in enumerate(zip(X, F)):
+            
+            # Round fees to discrete increments for final results
+            current_fees_rounded = round_to_increment(current_fees, self.fee_increment, xl, xu)
 
             # Get detailed results for this current_fee vector
-            detailed_results = self._get_detailed_results(current_fees, data)
+            detailed_results = self._get_detailed_results(current_fees_rounded, data)
 
             new_occupancy = detailed_results["occupancy"]
             revenue_vector = detailed_results["revenue"]
 
             # Build zone results for this scenario
             zone_results = []
-            for j, zone in enumerate(request.zones):                            # Iterate through each zone
+            for j, zone in enumerate(city.parking_zones):                            # Iterate through each zone
                 zone_results.append(OptimizedZoneResult(                        # Build result object for each zone
                     id=zone.id,
-                    new_fee=round(current_fees[j], 2),
+                    new_fee=round(float(current_fees_rounded[j]), 2),
                     predicted_occupancy=float(new_occupancy[j]),
                     predicted_revenue=round(revenue_vector[j], 2)
                 ))
@@ -190,88 +205,19 @@ class NSGA3Optimizer(ABC):
             )
             final_scenarios.append(scenario)
 
-        # Calculate computation time
-        computation_time = time.time() - start_time
-
-        return OptimizationResponse(
-            scenarios=final_scenarios
-        )
+        return final_scenarios
     
 
-    def select_best_solution_by_weights(self, response: OptimizationResponse, weights: dict) -> PricingScenario:
+    def select_best_solution_by_weights(self, scenarios: List[PricingScenario], weights: dict) -> PricingScenario:
         """
-        Selects the single best scenario from the Pareto Front based on user preferences.
-        It normalizes all objective values to a 0-1 scale to ensure fair comparison
-        between different units (Euros vs. Percentages).
+        Selects the best scenario from the Pareto Front based on user preferences.
+        Delegates to SolutionSelector service.
         
         Args:
-            response: The result from optimize() containing all Pareto scenarios.
+            scenarios: The result from optimize() containing all Pareto scenarios.
             weights: A dictionary with user weights (0-100), e.g., {"revenue": 50, "occupancy": 50}
+            
+        Returns:
+            The scenario with the highest weighted score
         """
-        scenarios = response.scenarios
-        if not scenarios: return None
-
-        print(f"\n⚖️  Calculating best compromise for weights: {weights}")
-
-        # ---------------------------------------------------------
-        # 1. Prepare Data for Normalization (Min-Max Scaling)
-        # ---------------------------------------------------------
-        
-        # Extract lists of all values to find the range (Min/Max) for each objective.
-        revenues = [s.score_revenue for s in scenarios]
-        gaps = [s.score_occupancy_gap for s in scenarios]
-        drops = [s.score_demand_drop for s in scenarios]
-        balances = [s.score_user_balance for s in scenarios]
-
-        # Determine boundaries. 
-        # This is needed to scale a value like "5000€" down to "0.8" relative to the others.
-        min_rev, max_rev = min(revenues), max(revenues)
-        min_gap, max_gap = min(gaps), max(gaps)
-        min_drop, max_drop = min(drops), max(drops)
-        min_bal, max_bal = min(balances), max(balances)
-
-        best_score = -float('inf')
-        best_scenario = None
-
-        # ---------------------------------------------------------
-        # 2. Score Each Scenario
-        # ---------------------------------------------------------
-        for s in scenarios:
-            
-            # --- A. Normalize Values (Scale 0.0 to 1.0) ---
-            
-            # Objective: MAXIMIZE Revenue
-            # Formula: (Value - Min) / (Max - Min)
-            # Result: 1.0 means this is the scenario with the highest revenue.
-            norm_rev = (s.score_revenue - min_rev) / (max_rev - min_rev) if max_rev > min_rev else 1.0
-            
-            # Objective: MINIMIZE Gap
-            # Formula: 1.0 - (Standard Normalization)
-            # Result: We invert the scale because "Small Gap" is good. 1.0 means perfect target hit.
-            norm_gap = 1.0 - ((s.score_occupancy_gap - min_gap) / (max_gap - min_gap)) if max_gap > min_gap else 1.0
-
-            # Objective: MINIMIZE Demand Drop
-            # Result: Invert scale. 1.0 means "No Drop" (Best case), 0.0 means "High Drop".
-            norm_drop = 1.0 - ((s.score_demand_drop - min_drop) / (max_drop - min_drop)) if max_drop > min_drop else 1.0
-
-            # Objective: MAXIMIZE Fairness (User Balance)
-            # Result: 1.0 means "Very Fair", 0.0 means "Unfair".
-            norm_bal = (s.score_user_balance - min_bal) / (max_bal - min_bal) if max_bal > min_bal else 1.0
-
-            # --- B. Apply User Weights ---
-            # Multiply normalized scores with user preferences (e.g., 0.5 for 50%).
-            # .get("key", 0) ensures that if a weight is missing, it counts as 0%.
-            score = (weights.get("revenue", 0) * norm_rev) + \
-                    (weights.get("occupancy", 0) * norm_gap) + \
-                    (weights.get("drop", 0) * norm_drop) + \
-                    (weights.get("fairness", 0) * norm_bal)
-            
-            # Track the winner
-            if score > best_score:
-                best_score = score
-                best_scenario = s
-
-        print(f"🏆 Winner: Scenario #{best_scenario.scenario_id} (Weighted Score: {best_score:.2f})")
-        print(f"   Details: Revenue={best_scenario.score_revenue}€ | Gap={best_scenario.score_occupancy_gap*100:.1f}%")
-        
-        return best_scenario
+        return SolutionSelector.select_best_by_weights(scenarios, weights)

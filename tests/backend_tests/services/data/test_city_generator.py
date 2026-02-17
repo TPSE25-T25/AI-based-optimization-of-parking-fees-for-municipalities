@@ -4,8 +4,8 @@ Unit tests for city and parking lot generator modules.
 
 import pytest
 
-from backend.models.city import City, PointOfInterest, ParkingZone
-from backend.services.data.generator.city_generator import ParkingZoneGenerator, CityGenerator
+from backend.services.models.city import City, PointOfInterest, ParkingZone
+from backend.services.datasources.generator.city_generator import ParkingZoneGenerator, CityGenerator
 
 
 @pytest.fixture
@@ -92,18 +92,17 @@ class TestParkingZoneGenerator:
             assert lot.maximum_capacity <= max_cap
     
     def test_generate_random_parking_zones_initial_occupancy(self, parking_zone_generator, geo_bounds):
-        """Test initial occupancy setting."""
+        """Test that parking zones have initial occupancy within their maximum capacity."""
         lat_range, lon_range = geo_bounds
         lots = parking_zone_generator.generate_random_parking_zones(
             count=10,
             lat_range=lat_range,
-            lon_range=lon_range,
-            initial_occupancy=0.5
+            lon_range=lon_range
         )
 
         for lot in lots:
-            expected_occupancy = int(lot.maximum_capacity * 0.5)
-            assert lot.current_capacity == expected_occupancy
+            # Verify current capacity is within maximum capacity (generated randomly)
+            assert 0 <= lot.current_capacity <= lot.maximum_capacity
     
     def test_generate_random_parking_zones_reproducibility(self, geo_bounds):
         """Test that seeded generator produces reproducible results."""
