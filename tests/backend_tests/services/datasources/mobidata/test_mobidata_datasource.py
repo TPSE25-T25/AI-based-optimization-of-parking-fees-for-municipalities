@@ -10,7 +10,7 @@ def _settings(
     city_name="Karlsruhe",
     center_coords=(49.0069, 8.4037),
     tariffs=None,
-    default_elasticity=-0.3,   # IMPORTANT: must be <= 0 for your pydantic schema
+    default_elasticity=-0.3,  # IMPORTANT: your ParkingZone schema requires <= 0
     poi_limit=5,
     search_radius=5000,
     default_current_fee=2.0,
@@ -30,12 +30,12 @@ def _settings(
 
 
 def _poi(id=1, name="poi", position=(49.0, 8.4)):
-    # minimal fields that your City model appears to require
+    # Minimal fields your City PointOfInterest validation expects
     return {"id": id, "name": name, "position": list(position)}
 
 
 def test_init_raises_typeerror_if_center_coords_none():
-    # Because ParkingDataSource.__init__ unpacks center_coords
+    # ParkingDataSource.__init__ unpacks center_coords => None crashes at init time
     ds = _settings(center_coords=None)
     with pytest.raises(TypeError):
         MobiDataDataSource(ds)
@@ -71,7 +71,7 @@ def test_convert_site_to_zone_estimates_capacity_and_occupancy_and_fee():
     z = src._convert_site_to_parking_zone_input(site, index=0)
 
     assert z.id == 123
-    assert z.position == [49.0, 8.4]
+    assert tuple(z.position) == (49.0, 8.4)  # robust (tuple or list)
     assert z.maximum_capacity == 150  # UNDERGROUND -> 150
     assert z.current_capacity == 140  # 150 - 10
     assert z.current_fee == 2.5
@@ -89,11 +89,12 @@ def test_convert_site_to_zone_defaults_occupancy_if_no_realtime():
         "lat": 49.0,
         "lon": 8.4,
         "capacity": 100,
+        # no realtime_free_capacity => 60% estimate
     }
 
     z = src._convert_site_to_parking_zone_input(site, index=0)
     assert z.maximum_capacity == 100
-    assert z.current_capacity == 60  # int(100 * 0.6)
+    assert z.current_capacity == 60
     assert z.current_fee == 1.0
     assert z.elasticity == -0.3
 
@@ -168,16 +169,17 @@ def test_load_city_builds_city_and_calls_pois_loader(monkeypatch):
     ds = _settings(city_name="Karlsruhe", center_coords=(49.0, 8.4), poi_limit=2, default_elasticity=-0.3)
     src = MobiDataDataSource(ds)
 
-    # Build real ParkingZone objects via the datasource conversion (so City validation passes)
+    # Use real ParkingZone objects via conversion to satisfy City validation
     z1 = src._convert_site_to_parking_zone_input(
-        {"id": 1, "name": "A", "lat": 49.0, "lon": 8.4, "capacity": 10, "realtime_free_capacity": 5}, index=0
+        {"id": 1, "name": "A", "lat": 49.0, "lon": 8.4, "capacity": 10, "realtime_free_capacity": 5, "has_fee": True},
+        index=0
     )
     z2 = src._convert_site_to_parking_zone_input(
-        {"id": 2, "name": "B", "lat": 49.2, "lon": 8.6, "capacity": 20, "realtime_free_capacity": 10}, index=1
+        {"id": 2, "name": "B", "lat": 49.2, "lon": 8.6, "capacity": 20, "realtime_free_capacity": 10, "has_fee": True},
+        index=1
     )
     src.load_zones_for_optimization = MagicMock(return_value=[z1, z2])
 
-    # POIs must satisfy City model requirements
     pois = [_poi(1, "poi1", (49.05, 8.45)), _poi(2, "poi2", (49.06, 8.46))]
     monkeypatch.setattr(mdl.OSMnxDataSource, "load_points_of_interest", MagicMock(return_value=pois))
 
@@ -189,7 +191,7 @@ def test_load_city_builds_city_and_calls_pois_loader(monkeypatch):
     assert len(city.parking_zones) == 2
     assert len(city.point_of_interests) == 2
 
-    # Bounds include padding (0.02 for this range)
+    # bounds with padding: (49.0..49.2 => diff 0.2 => pad 0.02)
     assert city.min_latitude == pytest.approx(49.0 - 0.02, rel=1e-6)
     assert city.max_latitude == pytest.approx(49.2 + 0.02, rel=1e-6)
     assert city.min_longitude == pytest.approx(8.4 - 0.02, rel=1e-6)
