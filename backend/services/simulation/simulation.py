@@ -582,7 +582,7 @@ class SimulationBatch:
             self.parallel_available = True
             self._Parallel = Parallel
             self._delayed = delayed
-        except ImportError:
+        except ImportError:  # pragma: no cover
             self.parallel_available = False
     
     def run_multiple_simulations(
