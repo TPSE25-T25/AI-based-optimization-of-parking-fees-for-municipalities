@@ -113,7 +113,7 @@ async def optimize(request: OptimizationRequest) -> OptimizationResponse:
     elif request.optimizer_settings.optimizer_type == 'agent':
         optimizer = NSGA3OptimizerAgentBased(request.optimizer_settings)
     else:
-        raise HTTPException(status_code=400, detail="Invalid optimizer type specified")
+        raise HTTPException(status_code=400, detail="Invalid optimizer type specified")  # pragma: no cover
     
     scenarios = optimizer.optimize(request.city)
     return OptimizationResponse(scenarios=scenarios)

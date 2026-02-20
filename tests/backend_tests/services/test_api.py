@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from unittest.mock import patch
 
 # Import the FastAPI app object from your api module
 from backend.services.api import app
@@ -41,92 +42,8 @@ def _scenario_dict(scenario_id: int = 1):
     }
 
 
-# -------------------------
-# Basic endpoints
-# -------------------------
-
-def test_root(client):
-    r = client.get("/")
-    assert r.status_code == 200
-    assert r.json() == {"message": "Parking Fee Optimization API is running"}
-
-
-def test_health(client):
-    r = client.get("/health")
-    assert r.status_code == 200
-    assert r.json() == {"status": "healthy"}
-
-
-def test_get_optimization_settings(client):
-    r = client.get("/optimization-settings")
-    assert r.status_code == 200
-    data = r.json()
-    assert isinstance(data, dict)
-
-
-# -------------------------
-# reverse-geocode
-# -------------------------
-
-def test_reverse_geocode_success(client, monkeypatch):
-    from backend.services.datasources.osm import osmnx_loader
-
-    def fake_reverse_geocode(lat, lon):
-        return {"city": "Karlsruhe", "country": "Germany", "lat": lat, "lon": lon}
-
-    monkeypatch.setattr(
-        osmnx_loader.OSMnxDataSource, "reverse_geocode", staticmethod(fake_reverse_geocode)
-    )
-
-    payload = {"center_lat": 49.0, "center_lon": 8.4}
-    r = client.post("/reverse-geocode", json=payload)
-
-    assert r.status_code == 200
-    body = r.json()
-    assert "geo_info" in body
-    assert body["geo_info"]["city"] == "Karlsruhe"
-
-
-def test_reverse_geocode_failure_returns_500(client, monkeypatch):
-    from backend.services.datasources.osm import osmnx_loader
-
-    def boom(lat, lon):
-        raise RuntimeError("OSM is down")
-
-    monkeypatch.setattr(osmnx_loader.OSMnxDataSource, "reverse_geocode", staticmethod(boom))
-
-    payload = {"center_lat": 49.0, "center_lon": 8.4}
-    r = client.post("/reverse-geocode", json=payload)
-
-    assert r.status_code == 500
-    assert "Reverse geocoding failed" in r.json()["detail"]
-
-
-# -------------------------
-# load_city
-# -------------------------
-
-def test_load_city_success(client, monkeypatch):
-    # We mock CityDataLoader.load_city so we avoid real datasources
-    from backend.services.datasources import city_data_loader
-
-    class DummyCity:
-        def __init__(self):
-            self.parking_zones = [{"id": 1}]
-            self.point_of_interests = []
-            self.name = "OptimizationCity"
-
-    class FakeLoader:
-        def __init__(self, datasource):
-            self.datasource = datasource
-
-        def load_city(self):
-            return DummyCity()
-
-    monkeypatch.setattr(city_data_loader, "CityDataLoader", FakeLoader)
-
-    # IMPORTANT: tariffs must be a dict for DataSourceSettings validation
-    payload = {
+def _load_city_payload(**overrides):
+    base = {
         "data_source": "generated",
         "limit": 10,
         "city_name": "TestCity",
@@ -137,35 +54,25 @@ def test_load_city_success(client, monkeypatch):
         "default_elasticity": -0.3,
         "search_radius": 1000,
         "default_current_fee": 2.0,
-        "tariffs": {},  # <-- fix (was None)
+        "tariffs": {},
     }
-
-    r = client.post("/load_city", json=payload)
-    assert r.status_code == 200
-    body = r.json()
-    assert "city" in body
-    assert "parking_zones" in body["city"]
+    base.update(overrides)
+    return base
 
 
-
-# -------------------------
-# optimize (mock both optimizers)
-# -------------------------
-
-def test_optimize_elasticity_path(client, monkeypatch):
-    import backend.services.api as api_module
-
-    class FakeElasticityOptimizer:
-        def __init__(self, settings):
-            self.settings = settings
-
-        def optimize(self, city):
-            # MUST return a valid PricingScenario shape because response_model validates it
-            return [_scenario_dict(1)]
-
-    monkeypatch.setattr(api_module, "NSGA3OptimizerElasticity", FakeElasticityOptimizer)
-
-    payload = {
+def _optimize_payload(optimizer_type="elasticity", **extra):
+    settings = {
+        "optimizer_type": optimizer_type,
+        "random_seed": 1,
+        "population_size": 10,
+        "generations": 2,
+        "target_occupancy": 0.85,
+        "min_fee": 1.0,
+        "max_fee": 10.0,
+        "fee_increment": 0.25,
+        **extra,
+    }
+    return {
         "city": {
             "id": 1,
             "name": "TestCity",
@@ -176,194 +83,12 @@ def test_optimize_elasticity_path(client, monkeypatch):
             "parking_zones": [],
             "point_of_interests": [],
         },
-        "optimizer_settings": {
-            "optimizer_type": "elasticity",
-            "random_seed": 1,
-            "population_size": 10,
-            "generations": 2,
-            "target_occupancy": 0.85,
-            "min_fee": 1.0,
-            "max_fee": 10.0,
-            "fee_increment": 0.25,
-        },
+        "optimizer_settings": settings,
     }
 
-    r = client.post("/optimize", json=payload)
-    assert r.status_code == 200
-    body = r.json()
-    assert "scenarios" in body
-    assert body["scenarios"][0]["scenario_id"] == 1
 
-
-def test_optimize_agent_path(client, monkeypatch):
-    import backend.services.api as api_module
-
-    class FakeAgentOptimizer:
-        def __init__(self, settings):
-            self.settings = settings
-
-        def optimize(self, city):
-            return [_scenario_dict(2)]
-
-    monkeypatch.setattr(api_module, "NSGA3OptimizerAgentBased", FakeAgentOptimizer)
-
-    payload = {
-        "city": {
-            "id": 1,
-            "name": "TestCity",
-            "min_latitude": 49.0,
-            "max_latitude": 49.1,
-            "min_longitude": 8.3,
-            "max_longitude": 8.5,
-            "parking_zones": [],
-            "point_of_interests": [],
-        },
-        "optimizer_settings": {
-            "optimizer_type": "agent",
-            "random_seed": 1,
-            "population_size": 10,
-            "generations": 2,
-            "target_occupancy": 0.85,
-            "min_fee": 1.0,
-            "max_fee": 10.0,
-            "fee_increment": 0.25,
-            # Agent-based extras required by AgentBasedSettings
-            "drivers_per_zone_capacity": 1.0,
-            "simulation_runs": 1,
-            "driver_fee_weight": 1.0,
-            "driver_distance_to_lot_weight": 0.0,
-            "driver_walking_distance_weight": 0.0,
-            "driver_availability_weight": 0.0,
-        },
-    }
-
-    r = client.post("/optimize", json=payload)
-    assert r.status_code == 200
-    assert r.json()["scenarios"][0]["scenario_id"] == 2
-
-
-def test_optimize_invalid_type_returns_422(client):
-    """
-    Because optimizer_type is a Literal in your Pydantic settings,
-    FastAPI rejects the request body before reaching your endpoint logic.
-    That produces 422, not 400.
-    """
-    payload = {
-        "city": {
-            "id": 1,
-            "name": "TestCity",
-            "min_latitude": 49.0,
-            "max_latitude": 49.1,
-            "min_longitude": 8.3,
-            "max_longitude": 8.5,
-            "parking_zones": [],
-            "point_of_interests": [],
-        },
-        "optimizer_settings": {
-            "optimizer_type": "wat",
-            "random_seed": 1,
-            "population_size": 10,
-            "generations": 2,
-            "target_occupancy": 0.85,
-            "min_fee": 1.0,
-            "max_fee": 10.0,
-            "fee_increment": 0.25,
-        },
-    }
-
-    r = client.post("/optimize", json=payload)
-    assert r.status_code == 422
-
-
-# -------------------------
-# select_best_solution_by_weight (mock selector)
-# -------------------------
-
-def test_select_best_solution_by_weight(client, monkeypatch):
-    import backend.services.api as api_module
-
-    def fake_select_best(scenarios, weights):
-        # Return a valid PricingScenario shape, because response_model validates it.
-        return _scenario_dict(99)
-
-    monkeypatch.setattr(
-        api_module.SolutionSelector, "select_best_by_weights", staticmethod(fake_select_best)
-    )
-
-    # IMPORTANT: WeightSelectionRequest expects List[PricingScenario]
-    payload = {
-        "scenarios": [_scenario_dict(1), _scenario_dict(2)],
-        "weights": {"revenue": 100},
-    }
-    r = client.post("/select_best_solution_by_weight", json=payload)
-
-    assert r.status_code == 200
-    body = r.json()
-    assert "scenario" in body
-    assert body["scenario"]["scenario_id"] == 99
-
-
-# -------------------------
-# DB endpoints (/results) - fully mocked SessionLocal + SimulationResult
-# -------------------------
-
-def test_results_endpoints_smoke(client, monkeypatch):
-    """
-    Smoke-test the DB endpoints without a real DB by replacing SessionLocal.
-    """
-    import backend.services.api as api_module
-
-    class FakeResult:
-        def __init__(self, id=1):
-            self.id = id
-            self.created_at = "2026-01-01T00:00:00"
-            self.parameters = {"x": 1}
-            self.map_config = None
-            self.map_snapshot = None
-            self.map_path = None
-            self.csv_path = None
-            self.best_scenario = None
-
-    class FakeSession:
-        def __init__(self):
-            self._stored = [FakeResult(1), FakeResult(2)]
-
-        def add(self, obj):
-            ...
-
-        def commit(self):
-            ...
-
-        def refresh(self, obj):
-            obj.id = 123
-            obj.created_at = "2026-01-01T00:00:00"
-
-        def close(self):
-            ...
-
-        def execute(self, stmt):
-            class FakeExec:
-                def __init__(self, rows):
-                    self._rows = rows
-
-                def scalars(self):
-                    return self
-
-                def all(self):
-                    return self._rows
-
-            return FakeExec(self._stored)
-
-        def get(self, model, rid):
-            for r in self._stored:
-                if r.id == rid:
-                    return r
-            return None
-
-    monkeypatch.setattr(api_module, "SessionLocal", lambda: FakeSession())
-
-    # save_result
-    save_payload = {
+def _save_result_payload(**overrides):
+    base = {
         "parameters": {"a": 1},
         "map_config": None,
         "map_snapshot": None,
@@ -371,23 +96,339 @@ def test_results_endpoints_smoke(client, monkeypatch):
         "csv_path": None,
         "best_scenario": None,
     }
-    r = client.post("/results", json=save_payload)
-    assert r.status_code == 200
-    assert "id" in r.json()
+    base.update(overrides)
+    return base
 
-    # list_results
-    r = client.get("/results")
-    assert r.status_code == 200
-    data = r.json()
-    assert isinstance(data, list)
-    assert len(data) == 2
-    assert "id" in data[0]
 
-    # get_result existing
-    r = client.get("/results/1")
-    assert r.status_code == 200
-    assert r.json()["id"] == 1
+# ═══════════════════════════════════════════════════════════════════════════════
+# Basic endpoints
+# ═══════════════════════════════════════════════════════════════════════════════
 
-    # get_result missing
-    r = client.get("/results/999")
-    assert r.status_code == 404
+class TestBasicEndpoints:
+
+    def test_root(self, client):
+        r = client.get("/")
+        assert r.status_code == 200
+        assert r.json() == {"message": "Parking Fee Optimization API is running"}
+
+    def test_health(self, client):
+        r = client.get("/health")
+        assert r.status_code == 200
+        assert r.json() == {"status": "healthy"}
+
+    def test_optimization_settings(self, client):
+        r = client.get("/optimization-settings")
+        assert r.status_code == 200
+        assert isinstance(r.json(), dict)
+
+    def test_nonexistent_route_404(self, client):
+        assert client.get("/nonexistent").status_code == 404
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Reverse geocode
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestReverseGeocode:
+
+    def test_success(self, client, monkeypatch):
+        from backend.services.datasources.osm import osmnx_loader
+
+        monkeypatch.setattr(
+            osmnx_loader.OSMnxDataSource, "reverse_geocode",
+            staticmethod(lambda lat, lon: {"city": "Karlsruhe", "lat": lat, "lon": lon}),
+        )
+
+        r = client.post("/reverse-geocode", json={"center_lat": 49.0, "center_lon": 8.4})
+        assert r.status_code == 200
+        assert r.json()["geo_info"]["city"] == "Karlsruhe"
+
+    def test_failure_returns_500(self, client, monkeypatch):
+        from backend.services.datasources.osm import osmnx_loader
+
+        monkeypatch.setattr(
+            osmnx_loader.OSMnxDataSource, "reverse_geocode",
+            staticmethod(lambda lat, lon: (_ for _ in ()).throw(RuntimeError("OSM down"))),
+        )
+
+        r = client.post("/reverse-geocode", json={"center_lat": 49.0, "center_lon": 8.4})
+        assert r.status_code == 500
+        assert "Reverse geocoding failed" in r.json()["detail"]
+
+    def test_missing_fields_422(self, client):
+        assert client.post("/reverse-geocode", json={}).status_code == 422
+
+    def test_missing_one_field_422(self, client):
+        assert client.post("/reverse-geocode", json={"center_lat": 49.0}).status_code == 422
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Load city
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestLoadCity:
+
+    @staticmethod
+    def _dummy_city(parking_zones=None):
+        """Return a City-compatible dict accepted by LoadCityResponse."""
+        from backend.services.models.city import City
+        zones = parking_zones if parking_zones is not None else [
+            {
+                "id": 1, "name": "Lot1", "current_fee": 2.0,
+                "position": [49.01, 8.41],
+                "maximum_capacity": 50, "current_capacity": 25,
+            }
+        ]
+        return City(
+            id=1, name="MockCity",
+            min_latitude=49.0, max_latitude=49.1,
+            min_longitude=8.3, max_longitude=8.5,
+            parking_zones=zones, point_of_interests=[],
+        )
+
+    def _mock_loader(self, monkeypatch, parking_zones=None, raise_exc=None):
+        import backend.services.api as api_module
+        city_obj = self._dummy_city(parking_zones)
+
+        class FakeLoader:
+            def __init__(self, datasource):
+                pass
+
+            def load_city(self):
+                if raise_exc:
+                    raise raise_exc
+                return city_obj
+
+        monkeypatch.setattr(api_module, "CityDataLoader", FakeLoader)
+
+    def test_success(self, client, monkeypatch):
+        self._mock_loader(monkeypatch)
+        r = client.post("/load_city", json=_load_city_payload())
+        assert r.status_code == 200
+        assert "city" in r.json()
+
+    def test_no_parking_zones_returns_502(self, client, monkeypatch):
+        self._mock_loader(monkeypatch, parking_zones=[])
+        r = client.post("/load_city", json=_load_city_payload())
+        assert r.status_code == 502
+        assert "No parking data" in r.json()["detail"]
+
+    def test_loader_exception_returns_502(self, client, monkeypatch):
+        self._mock_loader(monkeypatch, raise_exc=RuntimeError("Connection failed"))
+        r = client.post("/load_city", json=_load_city_payload())
+        assert r.status_code == 502
+        assert "Failed to load data" in r.json()["detail"]
+
+    def test_empty_body_defaults_fail_502(self, client):
+        # All LoadCityRequest fields have defaults; {} is valid but tariffs=None
+        # fails DataSourceSettings validation → caught → 502
+        r = client.post("/load_city", json={})
+        assert r.status_code == 502
+
+    def test_invalid_field_type_422(self, client):
+        payload = _load_city_payload(center_lat="not-a-number")
+        assert client.post("/load_city", json=payload).status_code == 422
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Optimize
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestOptimize:
+
+    def test_elasticity_path(self, client, monkeypatch):
+        import backend.services.api as api_module
+
+        class FakeOpt:
+            def __init__(self, s): pass
+            def optimize(self, city): return [_scenario_dict(1)]
+
+        monkeypatch.setattr(api_module, "NSGA3OptimizerElasticity", FakeOpt)
+        r = client.post("/optimize", json=_optimize_payload("elasticity"))
+        assert r.status_code == 200
+        assert r.json()["scenarios"][0]["scenario_id"] == 1
+
+    def test_agent_path(self, client, monkeypatch):
+        import backend.services.api as api_module
+
+        class FakeOpt:
+            def __init__(self, s): pass
+            def optimize(self, city): return [_scenario_dict(2)]
+
+        monkeypatch.setattr(api_module, "NSGA3OptimizerAgentBased", FakeOpt)
+        r = client.post("/optimize", json=_optimize_payload(
+            "agent",
+            drivers_per_zone_capacity=1.0,
+            simulation_runs=1,
+            driver_fee_weight=1.0,
+            driver_distance_to_lot_weight=0.0,
+            driver_walking_distance_weight=0.0,
+            driver_availability_weight=0.0,
+        ))
+        assert r.status_code == 200
+        assert r.json()["scenarios"][0]["scenario_id"] == 2
+
+    def test_invalid_optimizer_type_422(self, client):
+        assert client.post("/optimize", json=_optimize_payload("wat")).status_code == 422
+
+    def test_missing_body_422(self, client):
+        assert client.post("/optimize", json={}).status_code == 422
+
+    def test_missing_city_422(self, client):
+        payload = _optimize_payload()
+        del payload["city"]
+        assert client.post("/optimize", json=payload).status_code == 422
+
+    def test_missing_optimizer_settings_422(self, client):
+        payload = _optimize_payload()
+        del payload["optimizer_settings"]
+        assert client.post("/optimize", json=payload).status_code == 422
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Select best solution
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestSelectBestSolution:
+
+    def test_success(self, client, monkeypatch):
+        import backend.services.api as api_module
+
+        monkeypatch.setattr(
+            api_module.SolutionSelector, "select_best_by_weights",
+            staticmethod(lambda scenarios, weights: _scenario_dict(99)),
+        )
+        payload = {
+            "scenarios": [_scenario_dict(1), _scenario_dict(2)],
+            "weights": {"revenue": 100},
+        }
+        r = client.post("/select_best_solution_by_weight", json=payload)
+        assert r.status_code == 200
+        assert r.json()["scenario"]["scenario_id"] == 99
+
+    def test_empty_scenarios_field(self, client, monkeypatch):
+        import backend.services.api as api_module
+
+        monkeypatch.setattr(
+            api_module.SolutionSelector, "select_best_by_weights",
+            staticmethod(lambda scenarios, weights: _scenario_dict(1)),
+        )
+        payload = {"scenarios": [], "weights": {"revenue": 1}}
+        r = client.post("/select_best_solution_by_weight", json=payload)
+        assert r.status_code == 200
+
+    def test_missing_body_422(self, client):
+        assert client.post("/select_best_solution_by_weight", json={}).status_code == 422
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Results CRUD endpoints (mocked DB)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class _FakeResult:
+    def __init__(self, id=1, **kw):
+        self.id = id
+        self.created_at = "2026-01-01T00:00:00"
+        self.parameters = kw.get("parameters", {"x": 1})
+        self.map_config = kw.get("map_config")
+        self.map_snapshot = kw.get("map_snapshot")
+        self.map_path = kw.get("map_path")
+        self.csv_path = kw.get("csv_path")
+        self.best_scenario = kw.get("best_scenario")
+
+
+class _FakeSession:
+    def __init__(self, stored=None):
+        self._stored = stored if stored is not None else [_FakeResult(1), _FakeResult(2)]
+
+    def add(self, obj): pass
+    def commit(self): pass
+    def close(self): pass
+
+    def refresh(self, obj):
+        obj.id = 123
+        obj.created_at = "2026-01-01T00:00:00"
+
+    def execute(self, stmt):
+        parent = self
+
+        class _Exec:
+            def scalars(self): return self
+            def all(self): return parent._stored
+
+        return _Exec()
+
+    def get(self, model, rid):
+        return next((r for r in self._stored if r.id == rid), None)
+
+
+@pytest.fixture
+def db_client(monkeypatch):
+    import backend.services.api as api_module
+    monkeypatch.setattr(api_module, "SessionLocal", lambda: _FakeSession())
+    return TestClient(app)
+
+
+class TestResultsEndpoints:
+
+    def test_save_result(self, db_client):
+        r = db_client.post("/results", json=_save_result_payload())
+        assert r.status_code == 200
+        assert "id" in r.json()
+        assert "created_at" in r.json()
+
+    def test_save_result_full_fields(self, db_client):
+        r = db_client.post("/results", json=_save_result_payload(
+            map_config={"center": [49, 8]},
+            map_snapshot=[{"zones": []}],
+            map_path="/maps/test.html",
+            csv_path="/exports/test.csv",
+            best_scenario={"revenue": 500},
+        ))
+        assert r.status_code == 200
+
+    def test_save_result_missing_parameters_422(self, client):
+        r = client.post("/results", json={})
+        assert r.status_code == 422
+
+    def test_list_results(self, db_client):
+        r = db_client.get("/results")
+        assert r.status_code == 200
+        data = r.json()
+        assert isinstance(data, list)
+        assert len(data) == 2
+        assert all("id" in item and "parameters" in item for item in data)
+
+    def test_list_results_empty(self, monkeypatch, client):
+        import backend.services.api as api_module
+        monkeypatch.setattr(api_module, "SessionLocal", lambda: _FakeSession(stored=[]))
+        r = client.get("/results")
+        assert r.status_code == 200
+        assert r.json() == []
+
+    def test_get_result_exists(self, db_client):
+        r = db_client.get("/results/1")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["id"] == 1
+        for key in ("parameters", "map_config", "map_snapshot", "map_path", "csv_path", "best_scenario"):
+            assert key in body
+
+    def test_get_result_not_found_404(self, db_client):
+        r = db_client.get("/results/999")
+        assert r.status_code == 404
+        assert "Result not found" in r.json()["detail"]
+
+    def test_get_result_with_all_fields(self, monkeypatch, client):
+        import backend.services.api as api_module
+        full = _FakeResult(
+            id=5, parameters={"p": 1}, map_config={"z": 13},
+            map_snapshot={"s": 1}, map_path="/m.html",
+            csv_path="/c.csv", best_scenario={"r": 100},
+        )
+        monkeypatch.setattr(api_module, "SessionLocal", lambda: _FakeSession(stored=[full]))
+        r = client.get("/results/5")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["map_path"] == "/m.html"
+        assert body["best_scenario"] == {"r": 100}

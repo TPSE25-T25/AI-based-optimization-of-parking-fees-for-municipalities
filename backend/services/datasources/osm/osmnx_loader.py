@@ -657,7 +657,7 @@ class OSMnxDataSource(ParkingDataSource):
         opt_dict = {z.id: z for z in optimized_zones}
 
         for idx, row in res_gdf.iterrows():
-            zid = row['id']
+            zid = row['zone_id']
             if zid in opt_dict:
                 opt = opt_dict[zid]
                 old = self.zone_lookup.get(zid)
