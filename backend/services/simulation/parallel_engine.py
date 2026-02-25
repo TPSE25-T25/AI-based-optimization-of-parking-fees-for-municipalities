@@ -9,7 +9,7 @@ from enum import Enum
 import warnings
 
 # Try importing CUDA support
-try:
+try:  # pragma: no cover
     from numba import cuda, float32, int32
     CUDA_AVAILABLE = cuda.is_available()
 except (ImportError, Exception):
@@ -20,7 +20,7 @@ except (ImportError, Exception):
 try:
     from joblib import Parallel, delayed
     JOBLIB_AVAILABLE = True
-except ImportError:
+except ImportError:  # pragma: no cover
     JOBLIB_AVAILABLE = False
 
 
@@ -299,7 +299,7 @@ class ParallelEngine:
 
 
 # CUDA kernel (only compiled if CUDA is available)
-if CUDA_AVAILABLE:
+if CUDA_AVAILABLE:  # pragma: no cover
     @cuda.jit
     def _cuda_compute_scores(
         driver_pos, driver_dest, driver_max_fees,
