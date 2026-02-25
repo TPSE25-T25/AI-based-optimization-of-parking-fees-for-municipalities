@@ -223,7 +223,7 @@ export default function InfoPanel({ zone, city, onClose, hasResults, bestScenari
               className="info-value"
               style={{ color: '#27ae60', fontWeight: 'bold' }}
             >
-              {bestScenario.score_weighted_score.toFixed(2)}
+              placeholder
             </span>
           </div>
         )}
@@ -235,7 +235,7 @@ export default function InfoPanel({ zone, city, onClose, hasResults, bestScenari
               className="info-value"
               style={{ color: '#27ae60', fontWeight: 'bold' }}
             >
-              {10} €
+              {bestScenario.score_revenue.toFixed(2)} €
             </span>
           </div>
         )}
