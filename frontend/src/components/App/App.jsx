@@ -31,6 +31,7 @@ function App() {
   const [dbResults, setDbResults] = useState([]);
   const [selectedDbResultId, setSelectedDbResultId] = useState('');
   const [loadingDbResults, setLoadingDbResults] = useState(false);
+  const [bestScenario, setBestScenario] = useState(null);
 
   const handleSettingsChange = useCallback((newSettings) => {
     setSettings(newSettings);
@@ -97,6 +98,7 @@ function App() {
       const response = await axios.post(`${API_BASE_URL}/load_city`, requestBody);
       const cityData = response.data.city || response.data; // Handle both wrapped and unwrapped responses
       setCity(cityData);
+      console.log(cityData);
       console.log('Loaded city:', cityData.name, 'with', cityData.parking_zones?.length || 0, 'zones and', cityData.point_of_interests?.length || 0, 'POIs');
     } catch (err) {
       console.error('Error fetching city:', err);
@@ -274,13 +276,14 @@ function App() {
       );
 
       const selectedSolution = response.data.scenario;
+      setBestScenario(selectedSolution);
       setCity(prevCity => {
         if (!prevCity || !prevCity.parking_zones) return prevCity;
         return {
           ...prevCity,
           parking_zones: prevCity.parking_zones.map(zone => {
             const updatedZone = selectedSolution.zones.find(z => z.id === zone.id);
-            return updatedZone ? { ...zone, new_fee: updatedZone.new_fee, predicted_occupancy: updatedZone.predicted_occupancy } : zone;
+            return updatedZone ? { ...zone, new_fee: updatedZone.new_fee, predicted_occupancy: updatedZone.predicted_occupancy, predicted_revenue: updatedZone.predicted_revenue } : zone;
           })
         };
       });
@@ -310,6 +313,7 @@ function App() {
           score_occupancy_gap: selectedSolution.score_occupancy_gap,
           score_demand_drop: selectedSolution.score_demand_drop,
           score_user_balance: selectedSolution.score_user_balance,
+          //score_weighted_score: selectedSolution.score_weighted_score
         },
         optimizationResponseData: optimizationResponse,
       });
@@ -564,9 +568,11 @@ function App() {
             onLocationPicked={handleLocationPicked}
           />
 
-          {selectedZone && (
+          {/*selectedZone && (
             <InfoPanel zone={selectedZone} onClose={() => setSelectedZoneId(null)} />
-          )}
+          )*/}
+
+          <InfoPanel zone={selectedZone} city={city} onClose={() => setSelectedZoneId(null)} hasResults={optimizationResponse && bestScenario} bestScenario={bestScenario} />
         </div>
       </div>
     </div>
