@@ -1,0 +1,12 @@
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.git
+.venv
+node_modules
+frontend/node_modules
+frontend/dist
+docs
+tests
+**/*.bat
+backend/examples

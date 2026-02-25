@@ -7,6 +7,7 @@ import './index.css';
 
 // Import the main App component, this is the root component of our application
 import App from './components/App/App';
+import ErrorBoundary from './ErrorBoundary';
 
 // Create a "root" element where our React app will be mounted
 // This finds the HTML element with id="root" in public/index.html
@@ -17,6 +18,8 @@ root.render(
   // StrictMode is a React tool that helps catch potential problems during development
   // It runs extra checks and warnings but doesn't affect production builds
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>
 );

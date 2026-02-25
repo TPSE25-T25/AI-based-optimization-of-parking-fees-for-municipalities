@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -27,9 +29,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Parking Fee Optimization API", version="1.0.0", lifespan=lifespan)
 
 # Configure CORS
+_default_origins = "http://localhost:5173,http://localhost"
+_allowed_origins = os.getenv("ALLOWED_ORIGINS", _default_origins).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # React/Vite dev server
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
