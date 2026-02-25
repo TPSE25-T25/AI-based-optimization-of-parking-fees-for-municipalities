@@ -130,10 +130,12 @@ def test_cluster_zones_calls_kmeans_with_expected_clusters(monkeypatch, capsys):
             created["random_state"] = random_state
             created["n_init"] = n_init
             self.fitted_on = None
+            self.labels_ = None
 
         def fit(self, X):
             self.fitted_on = np.array(X)
             created["fit_shape"] = self.fitted_on.shape
+            self.labels_ = np.zeros(len(X), dtype=int)
 
     monkeypatch.setattr(mdl, "KMeans", FakeKMeans)
 
@@ -163,11 +165,13 @@ def test_cluster_zones_all_zero_coords_uses_fallback_indexing(monkeypatch, capsy
     class FakeKMeans:
         def __init__(self, n_clusters, random_state, n_init):
             self.fitted_on = None
+            self.labels_ = None
 
         def fit(self, X):
             arr = np.array(X)
             created["fit_shape"] = arr.shape
             created["fit_values_first_row"] = arr[0].tolist()
+            self.labels_ = np.zeros(len(X), dtype=int)
 
     monkeypatch.setattr(mdl, "KMeans", FakeKMeans)
 

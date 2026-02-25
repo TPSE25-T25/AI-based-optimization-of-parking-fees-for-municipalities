@@ -14,6 +14,7 @@ class LoadCityRequest(BaseModel):
     default_elasticity: Optional[float] = -0.4
     search_radius: Optional[int] = 10000
     default_current_fee: Optional[float] = 2.0
+    clustering_radius_m: Optional[float] = 200.0
     tariffs: Optional[Dict[str, float]] = None
 
 class LoadCityResponse(BaseModel):

@@ -7,9 +7,10 @@ from abc import ABC, abstractmethod
 from ast import Tuple
 from random import seed
 from typing import List
+import math
 import numpy as np
 import pandas as pd
-from sklearn.cluster import KMeans
+from sklearn.cluster import DBSCAN
 from backend.services.models.city import City
 from backend.services.optimizer.schemas.optimization_schema import ParkingZone
 from backend.services.settings.data_source_settings import DataSourceSettings
@@ -40,6 +41,7 @@ class ParkingDataSource(ABC):
         self.search_radius = data_source.search_radius
         self.default_current_fee = data_source.default_current_fee
         self.random_seed = data_source.random_seed
+        self.clustering_radius_m = data_source.clustering_radius_m
 
     
     @abstractmethod
@@ -71,54 +73,47 @@ class ParkingDataSource(ABC):
     
     def cluster_zones(self, raw_zones: List[ParkingZone]) -> List[ParkingZone]:
         """
-        Cluster parking zones spatially using K-Means algorithm.
-        
-        Groups parking zones into spatial clusters for better organization and
-        potential future features like grouped pricing or visualization.
-        On average, creates clusters of ~15 parking spots each.
-        
+        Cluster parking zones spatially using DBSCAN.
+
+        Zones within clustering_radius_m metres of each other are grouped into
+        the same pricing cluster.  The number of clusters is determined entirely
+        by the data — no magic constant required.
+
         Args:
             raw_zones: List of parking zones to cluster
-            
+
         Returns:
-            Same list of parking zones (clustering metadata available via K-Means)
+            Same list of parking zones with cluster_id set on each zone
         """
         if not raw_zones:
             return []
 
-        # Prepare data for K-Means (coordinate matrix)
-        # Create an array [[lat, lon], [lat, lon], ...]
         coords = np.array([[z.position[0], z.position[1]] for z in raw_zones])
 
-        # Safety check: If all coordinates are 0 (error in loader),
-        # use a fallback to prevent the code from crashing.
-        if np.all(coords == 0):
-            print("⚠️ Warning: No geolocation found. Falling back to simple indexing.")
-            coords = np.arange(len(raw_zones)).reshape(-1, 1)
+        # Convert degrees to approximate metres so that eps is meaningful.
+        # 1° latitude  ≈ 111 000 m everywhere.
+        # 1° longitude ≈ 111 000 * cos(lat) m — varies with latitude.
+        mean_lat = float(np.mean(coords[:, 0]))
+        lat_scale = 111_000.0
+        lon_scale = 111_000.0 * math.cos(math.radians(mean_lat))
 
-        # K-Means Configuration
-        # We don't want huge clusters. We say: On average 15 parking spots per cluster.
-        # This ensures fine-grained, realistic current_fee zones.
-        n_clusters = max(1, int(len(raw_zones) / 15))
-        
-        print(f"🧩 Running K-Means Algorithm...")
+        coords_m = np.column_stack([
+            coords[:, 0] * lat_scale,
+            coords[:, 1] * lon_scale,
+        ])
+
+        print(f"🧩 Running DBSCAN Clustering...")
         print(f"   Input: {len(raw_zones)} Zones")
-        print(f"   Target: {n_clusters} Spatial Clusters")
+        print(f"   Proximity radius: {self.clustering_radius_m:.0f} m")
 
-        # THE ALGORITHM
-        kmeans = KMeans(
-            n_clusters=n_clusters,
-            random_state=self.random_seed,       # Use configured seed for reproducibility
-            n_init=10              # Algorithm runs 10x, takes the best result
-        )
+        # min_samples=1 ensures every zone belongs to a cluster (no noise points).
+        dbscan = DBSCAN(eps=self.clustering_radius_m, min_samples=1, metric='euclidean')
+        labels = dbscan.fit_predict(coords_m)
 
-        # The real clustering happens here:
-        kmeans.fit(coords)
+        n_clusters = len(set(labels))
 
-        # Results
-        # Note: Clustering is computed for future use (visualization, grouping)
-        # but not currently stored in ParkingZone objects.
-        # The cluster labels can be accessed via kmeans.labels_ if needed later.
+        for zone, label in zip(raw_zones, labels):
+            zone.cluster_id = int(label)
 
         print(f"✅ Clustering complete. {n_clusters} spatial clusters identified.")
         print(f"   Complexity reduction factor: {len(raw_zones)/n_clusters:.1f}x")

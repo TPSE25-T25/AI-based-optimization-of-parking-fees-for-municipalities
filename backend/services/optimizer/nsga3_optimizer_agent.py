@@ -125,7 +125,7 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
         print(f"\nSimulation Environment Initialized:")
         print(f"  City: {self.base_city.name}")
         print(f"  Parking Lots: {len(self.base_city.parking_zones)}")
-        print(f"  Total Capacity: {self.base_city.total_parking_capacity()}")
+        print(f"  Total Capacity: {self.base_city.total_parking_capacity}")
         print(f"  Drivers: {len(self.base_drivers)}")
         print(f"  Parallel Backend: {backend_info['backend'].upper()}")
         print(f"  CUDA Available: {backend_info['cuda_available']}")
