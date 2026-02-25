@@ -185,12 +185,12 @@ export default function InfoPanel({ zone, city, onClose, hasResults, bestScenari
 
         {hasResults && (
           <div className="info-item">
-            <span className="info-label">Weighted Score:</span> {/*what is this exactly? */}
+            <span className="info-label">Weight Score Match:</span>
             <span
               className="info-value"
               style={{ color: '#27ae60', fontWeight: 'bold' }}
             >
-              placeholder
+              {bestScenario.weighted_score.toFixed(2)}%
             </span>
           </div>
         )}
@@ -214,7 +214,7 @@ export default function InfoPanel({ zone, city, onClose, hasResults, bestScenari
               className="info-value"
               style={{ color: '#27ae60', fontWeight: 'bold' }}
             >
-              {bestScenario.score_occupancy_gap.toFixed(2)}%
+              {(bestScenario.score_occupancy_gap * 100).toFixed(2)}%
             </span>
           </div>
         )}

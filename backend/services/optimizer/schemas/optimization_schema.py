@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Union
+from typing import List, Optional, Union
 from backend.services.models.city import City, ParkingZone
 from backend.services.settings.optimizations_settings import OptimizationSettings, AgentBasedSettings
 from backend.services.settings.data_source_settings import DataSourceSettings
@@ -20,6 +20,7 @@ class PricingScenario(BaseModel):
     """
     scenario_id: int
     zones: List[OptimizedZoneResult]
+    weighted_score: Optional[float] = None # Weighted score (maximize)
     
     #The 4 objective values calculated by NSGA-III
     score_revenue: float        # f1: Revenue (maximize)
