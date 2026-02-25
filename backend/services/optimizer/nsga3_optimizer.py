@@ -104,14 +104,36 @@ class NSGA3Optimizer(ABC):
 
     def optimize(self,  city: City) -> List[PricingScenario]:
         # Step 1: Extract zone data
-        data = self._convert_zones_to_numpy(city.parking_zones)
+        zones = city.parking_zones
+        data = self._convert_zones_to_numpy(zones)
 
-        # Number of decision variables = number of zones
-        n_vars = len(city.parking_zones)
+        # Step 2: Determine decision variable space (per-cluster or per-zone)
+        has_clusters = all(z.cluster_id is not None for z in zones)
 
-        # Step 2: Set current_fee bounds per zone
-        xl = data["min_fees"]
-        xu = data["max_fees"]
+        if has_clusters:
+            unique_clusters = sorted(set(z.cluster_id for z in zones))
+            n_clusters = len(unique_clusters)
+            cluster_to_idx = {cid: i for i, cid in enumerate(unique_clusters)}
+            zone_cluster_indices = np.array([cluster_to_idx[z.cluster_id] for z in zones])
+
+            # Per-cluster bounds: use the most restrictive valid range within each cluster
+            xl = np.array([
+                max(z.min_fee for z in zones if cluster_to_idx[z.cluster_id] == i)
+                for i in range(n_clusters)
+            ])
+            xu = np.array([
+                min(z.max_fee for z in zones if cluster_to_idx[z.cluster_id] == i)
+                for i in range(n_clusters)
+            ])
+            # Ensure xu >= xl in case of conflicting zone bounds within a cluster
+            xu = np.maximum(xu, xl)
+            n_vars = n_clusters
+        else:
+            # Fallback: original per-zone behavior (backward compatible)
+            n_vars = len(zones)
+            xl = data["min_fees"]
+            xu = data["max_fees"]
+            zone_cluster_indices = None
                 
         def round_to_increment(fees, increment, min_fees, max_fees):
             """Round fees to nearest increment and ensure within bounds."""
@@ -130,9 +152,14 @@ class NSGA3Optimizer(ABC):
             def _evaluate(self, x, out, *args, **kwargs):
                 # Round fees to discrete increments before evaluation
                 x_rounded = round_to_increment(x, self.optimizer.fee_increment, xl, xu)
-                
-                # x_rounded contains current_fees snapped to valid increments
-                f1, f2, f3, f4 = self.optimizer._simulate_scenario(x_rounded, city.parking_zones)
+
+                # Expand cluster-level fees to zone-level fees if clustering is active
+                if zone_cluster_indices is not None:
+                    zone_fees = x_rounded[zone_cluster_indices]
+                else:
+                    zone_fees = x_rounded
+
+                f1, f2, f3, f4 = self.optimizer._simulate_scenario(zone_fees, city.parking_zones)
 
                 out["F"] = [-f1, f2, f3, f4]
 
@@ -174,12 +201,18 @@ class NSGA3Optimizer(ABC):
         F = np.atleast_2d(res.F)
 
         for i, (current_fees, objectives) in enumerate(zip(X, F)):
-            
+
             # Round fees to discrete increments for final results
             current_fees_rounded = round_to_increment(current_fees, self.fee_increment, xl, xu)
 
+            # Expand cluster-level fees to zone-level fees if clustering is active
+            if zone_cluster_indices is not None:
+                zone_fees_rounded = current_fees_rounded[zone_cluster_indices]
+            else:
+                zone_fees_rounded = current_fees_rounded
+
             # Get detailed results for this current_fee vector
-            detailed_results = self._get_detailed_results(current_fees_rounded, data)
+            detailed_results = self._get_detailed_results(zone_fees_rounded, data)
 
             new_occupancy = detailed_results["occupancy"]
             revenue_vector = detailed_results["revenue"]
@@ -189,7 +222,7 @@ class NSGA3Optimizer(ABC):
             for j, zone in enumerate(city.parking_zones):                            # Iterate through each zone
                 zone_results.append(OptimizedZoneResult(                        # Build result object for each zone
                     id=zone.id,
-                    new_fee=round(float(current_fees_rounded[j]), 2),
+                    new_fee=round(float(zone_fees_rounded[j]), 2),
                     predicted_occupancy=float(new_occupancy[j]),
                     predicted_revenue=round(revenue_vector[j], 2)
                 ))

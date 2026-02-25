@@ -29,7 +29,7 @@ app = FastAPI(title="Parking Fee Optimization API", version="1.0.0", lifespan=li
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # React dev server
+    allow_origins=["http://localhost:5173"],  # React/Vite dev server
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -79,6 +79,7 @@ async def load_city(request: LoadCityRequest) -> LoadCityResponse:
             default_elasticity=request.default_elasticity,
             search_radius=request.search_radius,
             default_current_fee=request.default_current_fee,
+            clustering_radius_m=request.clustering_radius_m,
             tariffs=request.tariffs
         )
         

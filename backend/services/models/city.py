@@ -77,7 +77,8 @@ class ParkingZone(BaseModel):
     maximum_capacity: int = Field(..., gt=0, description="Maximum number of parking spots")
     min_fee: float = Field(default=0.0, ge=0, description="Legal minimum fee")
     max_fee: float = Field(default=10.0, description="Legal maximum fee")
-    
+    cluster_id: Optional[int] = Field(default=None, description="Spatial cluster ID assigned during data loading")
+
     @model_validator(mode='after')
     def current_capacity_not_exceed_maximum(self):
         """Validate that current capacity doesn't exceed maximum capacity."""

@@ -32,3 +32,4 @@ class DataSourceSettings(BaseModel):
     search_radius: int = Field(default=10000, ge=1000, description="Search radius in meters for MobiData API")
     default_current_fee: float = Field(default=2.0, ge=0, description="Default current fee for zones without specific data")
     tariffs: dict = Field(default_factory=lambda: KARLSRUHE_TARIFFS.copy(), description="Tariffs for OSMnx loader")
+    clustering_radius_m: float = Field(default=300.0, ge=1.0, description="Maximum distance in meters between two zones to be grouped in the same pricing cluster")
