@@ -119,7 +119,7 @@ const ParkingMap = ({ zones, selectedZoneId, onZoneClick, isLoading, loadingMess
 
       if (!lat || !lon) return;
 
-      const occupancyRate = (zone.current_capacity / zone.maximum_capacity) ?? 0;
+      const occupancyRate = (zone.current_capacity / zone.maximum_capacity) || 0;
       const color = getColorFromOccupancy(occupancyRate);
 
       const marker = L.circleMarker([lat, lon], {
