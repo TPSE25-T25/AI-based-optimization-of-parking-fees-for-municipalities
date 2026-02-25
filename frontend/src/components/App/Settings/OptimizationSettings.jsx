@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import '../../ConfigurationPanel/ConfigurationPanel.css';
+import { API_BASE_URL } from '../../Constants';
 
-const API_BASE_URL = 'http://localhost:8000';
 
 const INITIAL_SETTINGS = {
   common: {

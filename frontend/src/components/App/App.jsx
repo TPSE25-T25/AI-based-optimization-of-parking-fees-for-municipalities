@@ -1,6 +1,6 @@
 // APP - Main application container and state management
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import './App.css';
 
@@ -10,15 +10,15 @@ import MenuPanel from '../MenuPanel/MenuPanel';
 import ParkingMap from '../ParkingMap/ParkingMap';
 import OptimizerControls from './OptimizerControls';
 import ResultsActions from './ResultsActions';
+import { API_BASE_URL } from '../Constants';
 
-const API_BASE_URL = 'http://localhost:8000';
 
 function App() {
   const [city, setCity] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [menuOpen, setMenuOpen] = useState(true);
-  const [weights, setWeights] = useState({revenue: 50, occupancy: 30, drop: 10, fairness: 10});
+  const [weights, setWeights] = useState({revenue: 25, occupancy: 25, drop: 25, fairness: 25});
   const [selectedZoneId, setSelectedZoneId] = useState(null);
   const [optimizationResponse, setOptimizationResponse] = useState(null);
   const [optimizerType, setOptimizerType] = useState('elasticity');
@@ -489,6 +489,11 @@ function App() {
     }
   };
 
+  // Stable reference — prevents ParkingMap from re-running its marker rebuild every time
+  // unrelated App state (loading, menuOpen, weights, etc.) causes a re-render.
+  // Without this, `city?.parking_zones || []` creates a new [] on every render.
+  const mapZones = useMemo(() => city?.parking_zones ?? [], [city]);
+
   const selectedZone = city?.parking_zones?.find((zone) => zone.id === selectedZoneId) || null;
 
   return (
@@ -554,7 +559,7 @@ function App() {
           />
 
           <ParkingMap
-            zones={city?.parking_zones || []}
+            zones={mapZones}
             selectedZoneId={selectedZoneId}
             onZoneClick={setSelectedZoneId}
             isLoading={loading || optimizing || applyingWeights}
