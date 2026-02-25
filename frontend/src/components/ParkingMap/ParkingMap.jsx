@@ -10,6 +10,31 @@ import './ParkingMap.css';
 
 // Fix for default marker icons in react-leaflet
 delete L.Icon.Default.prototype._getIconUrl;
+
+// ===== CONSTANTS =====
+const CLUSTER_ZOOM_THRESHOLD = 16;
+
+// ===== CLUSTER HELPER =====
+const computeClusters = (zones) => {
+  const map = new Map();
+  zones.forEach(zone => {
+    const cid = (zone.cluster_id !== null && zone.cluster_id !== undefined && zone.cluster_id >= 0)
+      ? zone.cluster_id : null;
+    if (cid === null) return;
+    if (!map.has(cid)) map.set(cid, []);
+    map.get(cid).push(zone);
+  });
+  return [...map.entries()]
+    .filter(([, zs]) => zs.length > 1)
+    .map(([id, zs]) => ({
+      id,
+      zones: zs,
+      totalCapacity: zs.reduce((s, z) => s + (z.maximum_capacity || 0), 0),
+      totalOccupied:  zs.reduce((s, z) => s + (z.current_capacity  || 0), 0),
+      centerLat: zs.reduce((s, z) => s + z.position[0], 0) / zs.length,
+      centerLon: zs.reduce((s, z) => s + z.position[1], 0) / zs.length,
+    }));
+};
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: markerIcon2x,
   iconUrl: markerIcon,
@@ -51,7 +76,10 @@ const ParkingMap = ({ zones, selectedZoneId, onZoneClick, isLoading, loadingMess
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersRef = useRef({});
+  const clusterMarkersRef = useRef({});
   const [mapCenter, setMapCenter] = useState([49.0069, 8.4037]);
+  const [currentZoom, setCurrentZoom] = useState(13);
+  const [expandedClusters, setExpandedClusters] = useState(new Set());
 
   // ===== EFFECTS =====
   useEffect(() => {
@@ -75,6 +103,12 @@ const ParkingMap = ({ zones, selectedZoneId, onZoneClick, isLoading, loadingMess
         attribution: '© OpenStreetMap contributors',
         maxZoom: 19,
       }).addTo(mapInstanceRef.current);
+
+      mapInstanceRef.current.on('zoomend', () => {
+        const z = mapInstanceRef.current.getZoom();
+        setCurrentZoom(z);
+        if (z >= CLUSTER_ZOOM_THRESHOLD) setExpandedClusters(new Set());
+      });
     } else {
       mapInstanceRef.current.setView(mapCenter, 13);
     }
@@ -108,15 +142,55 @@ const ParkingMap = ({ zones, selectedZoneId, onZoneClick, isLoading, loadingMess
   useEffect(() => {
     if (!mapInstanceRef.current || !zones) return;
 
-    Object.values(markersRef.current).forEach((marker) => {
-      mapInstanceRef.current.removeLayer(marker);
-    });
+    // Clear all existing markers
+    Object.values(markersRef.current).forEach((m) => mapInstanceRef.current.removeLayer(m));
+    Object.values(clusterMarkersRef.current).forEach((m) => mapInstanceRef.current.removeLayer(m));
     markersRef.current = {};
+    clusterMarkersRef.current = {};
 
+    const clusters = computeClusters(zones);
+    const expandAtLowZoom = currentZoom < CLUSTER_ZOOM_THRESHOLD;
+    const clusteredZoneIds = new Set(clusters.flatMap((c) => c.zones.map((z) => z.id)));
+
+    // ── Cluster bubbles ──────────────────────────────────────────────────────
+    if (expandAtLowZoom) {
+      clusters.forEach((cluster) => {
+        if (expandedClusters.has(cluster.id)) return; // already expanded
+
+        const occupancyRate = cluster.totalOccupied / (cluster.totalCapacity || 1);
+        const color = getColorFromOccupancy(occupancyRate);
+        const size = Math.max(32, Math.min(48, 18 + cluster.zones.length * 2));
+
+        const icon = L.divIcon({
+          html: `<div class="cluster-bubble" style="width:${size}px;height:${size}px;background-color:${color};">
+                   <span class="cluster-bubble_count">${cluster.zones.length}</span>
+                   <span class="cluster-bubble_spaces">${cluster.totalCapacity}</span>
+                 </div>`,
+          className: '',
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2],
+        });
+
+        const marker = L.marker([cluster.centerLat, cluster.centerLon], { icon });
+        marker.on('click', () =>
+          setExpandedClusters((prev) => new Set([...prev, cluster.id]))
+        );
+        marker.addTo(mapInstanceRef.current);
+        clusterMarkersRef.current[cluster.id] = marker;
+      });
+    }
+
+    // ── Individual zone markers ──────────────────────────────────────────────
     zones.forEach((zone) => {
+      // Skip zones hidden inside a collapsed cluster bubble
+      const inCluster = clusteredZoneIds.has(zone.id);
+      if (inCluster && expandAtLowZoom) {
+        const clusterForZone = clusters.find((c) => c.zones.some((z) => z.id === zone.id));
+        if (clusterForZone && !expandedClusters.has(clusterForZone.id)) return;
+      }
+
       const lat = zone.position[0] || mapCenter[0];
       const lon = zone.position[1] || mapCenter[1];
-
       if (!lat || !lon) return;
 
       const occupancyRate = (zone.current_capacity / zone.maximum_capacity) || 0;
@@ -131,28 +205,11 @@ const ParkingMap = ({ zones, selectedZoneId, onZoneClick, isLoading, loadingMess
         fillOpacity: selectedZoneId === zone.id ? 0.9 : 0.7,
       });
 
-      const popupContent = `
-        <div style="font-family: Arial, sans-serif; min-width: 200px;">
-          <h4 style="margin: 8px 0;">${zone.name || `Zone ${zone.id}`}</h4>
-          <hr style="margin: 8px 0;" />
-          <p><b>Current Fee:</b> $${zone.current_fee.toFixed(2)}/hr</p>
-          <p><b>Occupancy:</b> ${((zone.current_capacity / zone.maximum_capacity) * 100).toFixed(1)}%</p>
-          <p><b>Capacity:</b> ${zone.maximum_capacity || 'N/A'} spots</p>
-          ${
-            zone.new_fee
-              ? `<p><b>New Fee:</b> $${zone.new_fee.toFixed(2)}/hr</p>`
-              : ''
-          }
-        </div>
-      `;
-
-      marker.bindPopup(popupContent);
       marker.on('click', (e) => {
         if (!isPickingLocation) {
           onZoneClick(zone.id);
           marker.openPopup();
         } else {
-          // Prevent zone selection when picking location
           L.DomEvent.stopPropagation(e);
         }
       });
@@ -160,7 +217,7 @@ const ParkingMap = ({ zones, selectedZoneId, onZoneClick, isLoading, loadingMess
       marker.addTo(mapInstanceRef.current);
       markersRef.current[zone.id] = marker;
     });
-  }, [zones, selectedZoneId, mapCenter, onZoneClick]);
+  }, [zones, selectedZoneId, mapCenter, onZoneClick, currentZoom, expandedClusters]);
 
   // ===== RENDER =====
   if (error) {

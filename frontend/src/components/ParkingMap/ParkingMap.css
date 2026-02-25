@@ -88,3 +88,40 @@
     transform: scale(1.05);
   }
 }
+
+/* ===== CLUSTER BUBBLE MARKERS ===== */
+.cluster-bubble {
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  user-select: none;
+}
+
+.cluster-bubble:hover {
+  transform: scale(1.12);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.cluster-bubble_count {
+  font-family: Arial, sans-serif;
+  font-weight: 700;
+  font-size: 1.2em;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  line-height: 1;
+}
+
+.cluster-bubble_spaces {
+  font-family: Arial, sans-serif;
+  font-size: 0.8em;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  line-height: 1.3;
+  text-align: center;
+}
