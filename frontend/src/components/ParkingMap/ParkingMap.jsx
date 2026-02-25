@@ -232,6 +232,7 @@ const ParkingMap = memo(({ zones, selectedZoneId, onZoneClick, isLoading, loadin
 
   const [currentZoom, setCurrentZoom]           = useState(13);
   const [expandedClusters, setExpandedClusters] = useState(new Set());
+  const prevZoomRef = useRef(13);
 
   // Stable refs for callbacks — never cause a marker rebuild when identity changes
   const onZoneClickRef       = useRef(onZoneClick);
@@ -275,8 +276,11 @@ const ParkingMap = memo(({ zones, selectedZoneId, onZoneClick, isLoading, loadin
 
     map.on('zoomend', () => {
       const z = map.getZoom();
+      if (z >= CLUSTER_ZOOM_THRESHOLD || z < prevZoomRef.current) {
+        setExpandedClusters(new Set());
+      }
+      prevZoomRef.current = z;
       setCurrentZoom(z);
-      if (z >= CLUSTER_ZOOM_THRESHOLD) setExpandedClusters(new Set());
     });
 
     // Cluster click detection: the canvas overlay has pointer-events:none so clicks

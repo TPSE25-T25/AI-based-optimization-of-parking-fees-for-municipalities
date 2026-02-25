@@ -18,7 +18,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [menuOpen, setMenuOpen] = useState(true);
-  const [weights, setWeights] = useState({revenue: 50, occupancy: 30, drop: 10, fairness: 10});
+  const [weights, setWeights] = useState({revenue: 25, occupancy: 25, drop: 25, fairness: 25});
   const [selectedZoneId, setSelectedZoneId] = useState(null);
   const [optimizationResponse, setOptimizationResponse] = useState(null);
   const [optimizerType, setOptimizerType] = useState('elasticity');
