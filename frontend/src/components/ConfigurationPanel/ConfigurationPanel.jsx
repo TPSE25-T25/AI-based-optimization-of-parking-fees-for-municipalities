@@ -7,9 +7,8 @@
 // ===== IMPORTS =====
 import { useEffect, useState } from 'react';
 import './ConfigurationPanel.css';
+import { API_BASE_URL } from '../Constants';
 
-// ===== CONSTANTS =====
-const API_BASE_URL = 'http://localhost:8000';
 
 // ===== COMPONENT =====
 const ConfigurationPanel = ({

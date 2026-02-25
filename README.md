@@ -63,7 +63,7 @@ This is a simple prototype application demonstrating AI-based optimization of pa
    cd backend
    start.bat
    ```
-   This will install Python dependencies and start the FastAPI server on `http://localhost:8000`
+   This will install Python dependencies and start the FastAPI server on `http://localhost:6173`
 
 2. **Start the Frontend (in a new terminal):**
    ```bash
@@ -102,10 +102,10 @@ The FastAPI backend provides the following endpoints:
 
 ```bash
 # Get all parking zones
-curl http://localhost:8000/zones
+curl http://localhost:6173/zones
 
 # Optimize fee for zone 1 with target occupancy of 75%
-curl -X POST "http://localhost:8000/optimize" \
+curl -X POST "http://localhost:6173/optimize" \
      -H "Content-Type: application/json" \
      -d '{
        "zone_id": 1,
@@ -145,8 +145,8 @@ This is a prototype implementation. In a real-world scenario, this would be repl
 ### API Documentation
 
 When the backend is running, you can access the interactive API documentation at:
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
+- Swagger UI: `http://localhost:6173/docs`
+- ReDoc: `http://localhost:6173/redoc`
 
 ## Testing
 
@@ -154,10 +154,10 @@ When the backend is running, you can access the interactive API documentation at
 ```bash
 cd backend
 # Test the health endpoint
-curl http://localhost:8000/health
+curl http://localhost:6173/health
 
 # Test getting zones
-curl http://localhost:8000/zones
+curl http://localhost:6173/zones
 ```
 
 ### Frontend Testing
@@ -170,7 +170,7 @@ The React app includes built-in error handling and will display connection statu
 1. **CORS Errors**: Make sure both servers are running and the frontend is accessing `http://localhost:3000`
 
 2. **Port Conflicts**: 
-   - Backend runs on port 8000
+   - Backend runs on port 6173
    - Frontend runs on port 3000
    - Make sure these ports are available
 
@@ -179,7 +179,7 @@ The React app includes built-in error handling and will display connection statu
    - For Node.js: Make sure you're using Node.js 14+
 
 4. **Backend Connection Error**:
-   - Verify the backend is running on `http://localhost:8000`
+   - Verify the backend is running on `http://localhost:6173`
    - Check the browser console for detailed error messages
 
 ### Logs

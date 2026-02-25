@@ -10,8 +10,8 @@ import MenuPanel from '../MenuPanel/MenuPanel';
 import ParkingMap from '../ParkingMap/ParkingMap';
 import OptimizerControls from './OptimizerControls';
 import ResultsActions from './ResultsActions';
+import { API_BASE_URL } from '../Constants';
 
-const API_BASE_URL = 'http://localhost:8000';
 
 function App() {
   const [city, setCity] = useState(null);
