@@ -1,6 +1,6 @@
 // APP - Main application container and state management
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import './App.css';
 
@@ -489,6 +489,11 @@ function App() {
     }
   };
 
+  // Stable reference — prevents ParkingMap from re-running its marker rebuild every time
+  // unrelated App state (loading, menuOpen, weights, etc.) causes a re-render.
+  // Without this, `city?.parking_zones || []` creates a new [] on every render.
+  const mapZones = useMemo(() => city?.parking_zones ?? [], [city]);
+
   const selectedZone = city?.parking_zones?.find((zone) => zone.id === selectedZoneId) || null;
 
   return (
@@ -554,7 +559,7 @@ function App() {
           />
 
           <ParkingMap
-            zones={city?.parking_zones || []}
+            zones={mapZones}
             selectedZoneId={selectedZoneId}
             onZoneClick={setSelectedZoneId}
             isLoading={loading || optimizing || applyingWeights}

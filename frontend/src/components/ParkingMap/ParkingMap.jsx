@@ -1,6 +1,6 @@
 // PARKING MAP - Interactive Leaflet map with zone markers and occupancy visualization
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo, memo } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
@@ -35,6 +35,7 @@ const computeClusters = (zones) => {
       centerLon: zs.reduce((s, z) => s + z.position[1], 0) / zs.length,
     }));
 };
+
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: markerIcon2x,
   iconUrl: markerIcon,
@@ -43,93 +44,274 @@ L.Icon.Default.mergeOptions({
 
 // ===== HELPER FUNCTIONS =====
 const getColorFromOccupancy = (occupancyRate) => {
-  // Clamp occupancy rate between 0 and 1
   const rate = Math.max(0, Math.min(1, occupancyRate));
-  
-  // Define colors: Green (0%), Yellow (50%), Red (100%)
-  const green = { r: 39, g: 174, b: 96 };
+
+  const green  = { r: 39,  g: 174, b: 96 };
   const yellow = { r: 243, g: 156, b: 18 };
-  const red = { r: 231, g: 76, b: 60 };
-  
+  const red    = { r: 231, g: 76,  b: 60 };
+
   let r, g, b;
-  
+
   if (rate <= 0.5) {
-    // Interpolate between green and yellow (0% to 50%)
-    const t = rate * 2; // Scale to 0-1 for this range
+    const t = rate * 2;
     r = Math.round(green.r + (yellow.r - green.r) * t);
     g = Math.round(green.g + (yellow.g - green.g) * t);
     b = Math.round(green.b + (yellow.b - green.b) * t);
   } else {
-    // Interpolate between yellow and red (50% to 100%)
-    const t = (rate - 0.5) * 2; // Scale to 0-1 for this range
+    const t = (rate - 0.5) * 2;
     r = Math.round(yellow.r + (red.r - yellow.r) * t);
     g = Math.round(yellow.g + (red.g - yellow.g) * t);
     b = Math.round(yellow.b + (red.b - yellow.b) * t);
   }
-  
+
   return `rgb(${r}, ${g}, ${b})`;
 };
 
-// ===== COMPONENT =====
-const ParkingMap = ({ zones, selectedZoneId, onZoneClick, isLoading, loadingMessage = 'Loading parking zones...', error, isPickingLocation, onLocationPicked }) => {
-  // ===== STATE =====
-  const mapRef = useRef(null);
-  const mapInstanceRef = useRef(null);
-  const markersRef = useRef({});
-  const clusterMarkersRef = useRef({});
-  const [mapCenter, setMapCenter] = useState([49.0069, 8.4037]);
-  const [currentZoom, setCurrentZoom] = useState(13);
-  const [expandedClusters, setExpandedClusters] = useState(new Set());
+// ===== CLUSTER CANVAS OVERLAY =====
+// Replaces 500 individual HTML <div> markers with a single <canvas> element.
+//
+// Why this matters:
+//   L.marker + divIcon = one real DOM node per cluster.
+//   On every pan Leaflet calls style.setProperty / transform on each node → O(n) style mutations.
+//   One canvas = zero per-element DOM mutations during pan.
+//   The entire canvas moves as a single GPU-composited layer, then redraws once on moveend.
+//
+// Click detection is done with simple circle-hit math in handleMapClick(),
+// which the parent calls from the map's 'click' event.
+class ClusterCanvasLayer extends L.Layer {
+  constructor() {
+    super();
+    this._clusters       = [];
+    this._expandedSet    = new Set();
+    this._onClusterClick = null;
+    this._hitTargets     = [];   // [{id, pt, r}] rebuilt on every _draw()
+  }
 
-  // ===== EFFECTS =====
-  useEffect(() => {
-    if (zones && zones.length > 0) {
-      const hasCoordinates = zones.some((zone) => zone.position);
-      if (hasCoordinates) {
-        const avgLat = zones.reduce((sum, zone) => sum + (zone.position[0] || 0), 0) / zones.length;
-        const avgLon = zones.reduce((sum, zone) => sum + (zone.position[1] || 0), 0) / zones.length;
-        setMapCenter([avgLat, avgLon]);
+  onAdd(map) {
+    this._map    = map;
+    this._canvas = L.DomUtil.create('canvas', 'leaflet-cluster-canvas');
+    Object.assign(this._canvas.style, {
+      position:      'absolute',
+      top:           '0',
+      left:          '0',
+      pointerEvents: 'none', // clicks fall through to the map; we handle them manually
+    });
+    map.getPanes().overlayPane.appendChild(this._canvas);
+
+    // After pan/zoom finishes: reposition + redraw at correct pixel coordinates.
+    map.on('moveend zoomend viewreset', this._draw, this);
+
+    // During zoom animation: Leaflet CSS-scales the overlay pane, but our canvas
+    // content was drawn at the old zoom level and looks wrong at the new scale.
+    // We mirror what Leaflet's own L.Canvas renderer does: apply a matching
+    // CSS transform to the canvas element so it visually tracks the animation,
+    // then let _draw() correct it precisely once zoomend fires.
+    map.on('zoomanim', this._onZoomAnim, this);
+
+    this._draw();
+  }
+
+  onRemove(map) {
+    this._canvas.remove();
+    this._canvas = null;
+    map.off('moveend zoomend viewreset', this._draw, this);
+    map.off('zoomanim', this._onZoomAnim, this);
+  }
+
+  // Mirrors L.Canvas._onZoomAnim: scale+translate the canvas to match the animation
+  // frame so cluster bubbles move fluidly during pinch/scroll zoom.
+  _onZoomAnim(ev) {
+    if (!this._map || !this._canvas) return;
+    const scale  = ev.scale;
+    const offset = this._map._latLngBoundsToNewLayerBounds(
+      this._map.getBounds(),
+      ev.zoom,
+      ev.center,
+    ).min;
+    L.DomUtil.setTransform(this._canvas, offset, scale);
+  }
+
+  // Called by the React effect whenever cluster data or expandedClusters changes.
+  update(clusters, expandedSet, onClusterClick) {
+    this._clusters       = clusters;
+    this._expandedSet    = expandedSet;
+    this._onClusterClick = onClusterClick;
+    this._hitTargets     = [];
+    this._draw();
+  }
+
+  _draw() {
+    if (!this._map || !this._canvas) return;
+
+    const map  = this._map;
+    const size = map.getSize();
+    const c    = this._canvas;
+    const dpr  = window.devicePixelRatio || 1;
+
+    // Physical pixel buffer = logical size × DPR → crisp on retina / HiDPI screens.
+    // CSS size stays at logical pixels so the canvas covers the map exactly.
+    c.width        = size.x * dpr;
+    c.height       = size.y * dpr;
+    c.style.width  = `${size.x}px`;
+    c.style.height = `${size.y}px`;
+
+    // Counter-act the overlay pane's CSS transform so canvas pixel-coords match container-coords.
+    // Also resets any transform that _onZoomAnim applied during animation.
+    const topLeft = map.containerPointToLayerPoint([0, 0]);
+    L.DomUtil.setPosition(c, topLeft);
+
+    const ctx = c.getContext('2d');
+    // All drawing coordinates are in logical px; ctx.scale makes them map to physical px.
+    ctx.scale(dpr, dpr);
+
+    this._hitTargets = [];
+
+    this._clusters.forEach(cluster => {
+      if (this._expandedSet.has(cluster.id)) return;
+
+      const pt = map.latLngToContainerPoint([cluster.centerLat, cluster.centerLon]);
+
+      // Viewport cull — skip anything well outside the visible area
+      if (pt.x < -64 || pt.y < -64 || pt.x > size.x + 64 || pt.y > size.y + 64) return;
+
+      const r     = Math.max(16, Math.min(24, 9 + cluster.zones.length));
+      const occ   = cluster.totalOccupied / (cluster.totalCapacity || 1);
+      const color = getColorFromOccupancy(occ);
+
+      // ── Filled circle ────────────────────────────────────────────────────
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth   = 2;
+      ctx.stroke();
+
+      // ── Zone count (upper label) ─────────────────────────────────────────
+      ctx.fillStyle    = '#fff';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font         = `bold ${Math.round(r * 0.58)}px sans-serif`;
+      ctx.fillText(String(cluster.zones.length), pt.x, pt.y - r * 0.20);
+
+      // ── Total capacity (lower label, smaller) ────────────────────────────
+      ctx.font = `${Math.round(r * 0.38)}px sans-serif`;
+      ctx.fillText(String(cluster.totalCapacity), pt.x, pt.y + r * 0.42);
+
+      this._hitTargets.push({ id: cluster.id, pt, r });
+    });
+  }
+
+  // Called by the map 'click' handler in ParkingMap.
+  // Returns true if the click landed on a cluster bubble (and handles it), false otherwise.
+  handleMapClick(containerPt) {
+    for (let i = this._hitTargets.length - 1; i >= 0; i--) {
+      const { id, pt, r } = this._hitTargets[i];
+      const dx = containerPt.x - pt.x;
+      const dy = containerPt.y - pt.y;
+      if (dx * dx + dy * dy <= r * r) {
+        if (this._onClusterClick) this._onClusterClick(id);
+        return true;
       }
     }
+    return false;
+  }
+}
+
+// ===== COMPONENT =====
+// React.memo: ParkingMap skips re-render when unrelated App state changes
+// (menuOpen, weights slider, modalMessage, loading flags, etc.)
+const ParkingMap = memo(({ zones, selectedZoneId, onZoneClick, isLoading, loadingMessage = 'Loading parking zones...', error, isPickingLocation, onLocationPicked }) => {
+  // ===== REFS =====
+  const mapRef            = useRef(null);
+  const mapInstanceRef    = useRef(null);
+  const canvasRendererRef = useRef(null); // Shared L.canvas renderer for all zone circleMarkers
+  const zoneLayerRef      = useRef(null); // L.layerGroup — clearLayers() beats 500× removeLayer()
+  const clusterOverlayRef = useRef(null); // ClusterCanvasLayer instance
+  const markersRef        = useRef({});   // zone.id → L.circleMarker  (for selectedZone setStyle)
+
+  const [currentZoom, setCurrentZoom]           = useState(13);
+  const [expandedClusters, setExpandedClusters] = useState(new Set());
+
+  // Stable refs for callbacks — never cause a marker rebuild when identity changes
+  const onZoneClickRef       = useRef(onZoneClick);
+  const isPickingLocationRef = useRef(isPickingLocation);
+  useEffect(() => { onZoneClickRef.current       = onZoneClick;       }, [onZoneClick]);
+  useEffect(() => { isPickingLocationRef.current = isPickingLocation; }, [isPickingLocation]);
+
+  // ===== MEMOIZED DERIVED DATA =====
+  const clusters = useMemo(
+    () => (zones && zones.length > 0) ? computeClusters(zones) : [],
+    [zones]
+  );
+
+  // O(1) zone→cluster lookup — replaces O(n×m) .find().some() per zone
+  const zoneToClusterMap = useMemo(() => {
+    const m = new Map();
+    clusters.forEach(c => c.zones.forEach(z => m.set(z.id, c)));
+    return m;
+  }, [clusters]);
+
+  // ===== MAP INITIALISATION (runs exactly once) =====
+  useEffect(() => {
+    if (!mapRef.current || mapInstanceRef.current) return;
+
+    const map = L.map(mapRef.current, { preferCanvas: true }).setView([49.0069, 8.4037], 13);
+    mapInstanceRef.current = map;
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors',
+      maxZoom: 19,
+    }).addTo(map);
+
+    // One shared canvas renderer for ALL zone circleMarkers.
+    // 500 markers → 1 <canvas> element → 1 repaint per frame instead of 500 SVG node moves.
+    canvasRendererRef.current = L.canvas({ padding: 0.5 });
+    zoneLayerRef.current      = L.layerGroup().addTo(map);
+
+    // The cluster canvas overlay: replaces 500 L.marker+divIcon HTML elements
+    clusterOverlayRef.current = new ClusterCanvasLayer();
+    clusterOverlayRef.current.addTo(map);
+
+    map.on('zoomend', () => {
+      const z = map.getZoom();
+      setCurrentZoom(z);
+      if (z >= CLUSTER_ZOOM_THRESHOLD) setExpandedClusters(new Set());
+    });
+
+    // Cluster click detection: the canvas overlay has pointer-events:none so clicks
+    // fall through to the map. The overlay's handleMapClick() does circle-hit math.
+    map.on('click', (e) => {
+      if (!isPickingLocationRef.current) {
+        clusterOverlayRef.current.handleMapClick(e.containerPoint);
+      }
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Centre the map when zones first arrive (panTo preserves the user's zoom level)
+  useEffect(() => {
+    if (!mapInstanceRef.current || !zones || zones.length === 0) return;
+    const withPos = zones.filter(z => z.position);
+    if (withPos.length === 0) return;
+    const avgLat = withPos.reduce((s, z) => s + z.position[0], 0) / withPos.length;
+    const avgLon = withPos.reduce((s, z) => s + z.position[1], 0) / withPos.length;
+    mapInstanceRef.current.panTo([avgLat, avgLon]);
   }, [zones]);
 
-  useEffect(() => {
-    if (!mapRef.current) return;
-
-    if (!mapInstanceRef.current) {
-      mapInstanceRef.current = L.map(mapRef.current).setView(mapCenter, 13);
-
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors',
-        maxZoom: 19,
-      }).addTo(mapInstanceRef.current);
-
-      mapInstanceRef.current.on('zoomend', () => {
-        const z = mapInstanceRef.current.getZoom();
-        setCurrentZoom(z);
-        if (z >= CLUSTER_ZOOM_THRESHOLD) setExpandedClusters(new Set());
-      });
-    } else {
-      mapInstanceRef.current.setView(mapCenter, 13);
-    }
-  }, [mapCenter]);
-
-  // Handle location picking mode
+  // Location picking mode
   useEffect(() => {
     if (!mapInstanceRef.current) return;
 
     if (isPickingLocation) {
-      // Change cursor to crosshair
       mapInstanceRef.current.getContainer().style.cursor = 'crosshair';
-      
-      // Add click handler for picking location
+
       const handleMapClick = (e) => {
         const { lat, lng } = e.latlng;
         onLocationPicked(lat, lng);
       };
-      
+
       mapInstanceRef.current.on('click', handleMapClick);
-      
+
       return () => {
         mapInstanceRef.current.off('click', handleMapClick);
         mapInstanceRef.current.getContainer().style.cursor = '';
@@ -139,85 +321,85 @@ const ParkingMap = ({ zones, selectedZoneId, onZoneClick, isLoading, loadingMess
     }
   }, [isPickingLocation, onLocationPicked]);
 
+  // ===== MARKER REBUILD =====
+  // Triggered by: zone data change, zoom crossing threshold, cluster expansion.
+  // NOT triggered by: selectedZoneId changes, callback identity changes.
   useEffect(() => {
-    if (!mapInstanceRef.current || !zones) return;
+    if (!mapInstanceRef.current || !zoneLayerRef.current || !clusterOverlayRef.current) return;
 
-    // Clear all existing markers
-    Object.values(markersRef.current).forEach((m) => mapInstanceRef.current.removeLayer(m));
-    Object.values(clusterMarkersRef.current).forEach((m) => mapInstanceRef.current.removeLayer(m));
+    // Clear zone markers (single clearLayers() call, not 500× removeLayer())
+    zoneLayerRef.current.clearLayers();
     markersRef.current = {};
-    clusterMarkersRef.current = {};
 
-    const clusters = computeClusters(zones);
-    const expandAtLowZoom = currentZoom < CLUSTER_ZOOM_THRESHOLD;
-    const clusteredZoneIds = new Set(clusters.flatMap((c) => c.zones.map((z) => z.id)));
-
-    // ── Cluster bubbles ──────────────────────────────────────────────────────
-    if (expandAtLowZoom) {
-      clusters.forEach((cluster) => {
-        if (expandedClusters.has(cluster.id)) return; // already expanded
-
-        const occupancyRate = cluster.totalOccupied / (cluster.totalCapacity || 1);
-        const color = getColorFromOccupancy(occupancyRate);
-        const size = Math.max(32, Math.min(48, 18 + cluster.zones.length * 2));
-
-        const icon = L.divIcon({
-          html: `<div class="cluster-bubble" style="width:${size}px;height:${size}px;background-color:${color};">
-                   <span class="cluster-bubble_count">${cluster.zones.length}</span>
-                   <span class="cluster-bubble_spaces">${cluster.totalCapacity}</span>
-                 </div>`,
-          className: '',
-          iconSize: [size, size],
-          iconAnchor: [size / 2, size / 2],
-        });
-
-        const marker = L.marker([cluster.centerLat, cluster.centerLon], { icon });
-        marker.on('click', () =>
-          setExpandedClusters((prev) => new Set([...prev, cluster.id]))
-        );
-        marker.addTo(mapInstanceRef.current);
-        clusterMarkersRef.current[cluster.id] = marker;
-      });
+    if (!zones || zones.length === 0) {
+      clusterOverlayRef.current.update([], new Set(), null);
+      return;
     }
 
-    // ── Individual zone markers ──────────────────────────────────────────────
-    zones.forEach((zone) => {
-      // Skip zones hidden inside a collapsed cluster bubble
-      const inCluster = clusteredZoneIds.has(zone.id);
-      if (inCluster && expandAtLowZoom) {
-        const clusterForZone = clusters.find((c) => c.zones.some((z) => z.id === zone.id));
-        if (clusterForZone && !expandedClusters.has(clusterForZone.id)) return;
-      }
+    const expandAtLowZoom = currentZoom < CLUSTER_ZOOM_THRESHOLD;
 
-      const lat = zone.position[0] || mapCenter[0];
-      const lon = zone.position[1] || mapCenter[1];
+    // ── Cluster canvas overlay (one draw call, zero DOM elements) ────────────
+    if (expandAtLowZoom) {
+      clusterOverlayRef.current.update(clusters, expandedClusters, (clusterId) => {
+        setExpandedClusters(prev => new Set([...prev, clusterId]));
+      });
+    } else {
+      clusterOverlayRef.current.update([], new Set(), null);
+    }
+
+    // ── Individual zone markers (canvas renderer) ────────────────────────────
+    zones.forEach((zone) => {
+      // O(1) lookup — was O(n×m) find+some previously
+      const zoneCluster = zoneToClusterMap.get(zone.id);
+      if (zoneCluster && expandAtLowZoom && !expandedClusters.has(zoneCluster.id)) return;
+
+      const lat = zone.position?.[0];
+      const lon = zone.position?.[1];
       if (!lat || !lon) return;
 
       const occupancyRate = (zone.current_capacity / zone.maximum_capacity) || 0;
-      const color = getColorFromOccupancy(occupancyRate);
+      const color         = getColorFromOccupancy(occupancyRate);
 
       const marker = L.circleMarker([lat, lon], {
-        radius: 8,
-        fillColor: color,
-        color: '#000',
-        weight: 2,
-        opacity: selectedZoneId === zone.id ? 1 : 0.7,
-        fillOpacity: selectedZoneId === zone.id ? 0.9 : 0.7,
+        renderer:    canvasRendererRef.current, // shared canvas — 1 <canvas> for all 500
+        radius:      8,
+        fillColor:   color,
+        color:       '#000',
+        weight:      2,
+        opacity:     0.7,
+        fillOpacity: 0.7,
       });
 
       marker.on('click', (e) => {
-        if (!isPickingLocation) {
-          onZoneClick(zone.id);
-          marker.openPopup();
-        } else {
-          L.DomEvent.stopPropagation(e);
+        L.DomEvent.stopPropagation(e); // prevent map-level click from also running
+        if (!isPickingLocationRef.current) {
+          onZoneClickRef.current(zone.id);
         }
       });
 
-      marker.addTo(mapInstanceRef.current);
+      zoneLayerRef.current.addLayer(marker);
       markersRef.current[zone.id] = marker;
     });
-  }, [zones, selectedZoneId, mapCenter, onZoneClick, currentZoom, expandedClusters]);
+
+    // Restore selection highlight on freshly-built markers
+    if (selectedZoneId && markersRef.current[selectedZoneId]) {
+      markersRef.current[selectedZoneId].setStyle({ opacity: 1, fillOpacity: 0.9 });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zones, clusters, zoneToClusterMap, currentZoom, expandedClusters]);
+  // NOTE: selectedZoneId intentionally excluded — handled by the cheap effect below
+
+  // ===== SELECTED ZONE HIGHLIGHT =====
+  // Touches exactly 2 markers with setStyle() instead of rebuilding all 500+
+  const prevSelectedZoneIdRef = useRef(selectedZoneId);
+  useEffect(() => {
+    const prevId = prevSelectedZoneIdRef.current;
+    prevSelectedZoneIdRef.current = selectedZoneId;
+
+    if (prevId === selectedZoneId) return;
+    if (prevId    && markersRef.current[prevId])        markersRef.current[prevId].setStyle({ opacity: 0.7, fillOpacity: 0.7 });
+    if (selectedZoneId && markersRef.current[selectedZoneId]) markersRef.current[selectedZoneId].setStyle({ opacity: 1, fillOpacity: 0.9 });
+  }, [selectedZoneId]);
 
   // ===== RENDER =====
   if (error) {
@@ -247,7 +429,7 @@ const ParkingMap = ({ zones, selectedZoneId, onZoneClick, isLoading, loadingMess
       )}
     </div>
   );
-};
+});
 
 // ===== EXPORT =====
 export default ParkingMap;
