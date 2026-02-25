@@ -87,8 +87,8 @@ class MobiDataDataSource(ParkingDataSource):
         
         print(f"✅ City model created: {city.name}")
         print(f"   Bounds: ({min_lat:.4f}, {min_lon:.4f}) to ({max_lat:.4f}, {max_lon:.4f})")
-        print(f"   Total capacity: {city.total_parking_capacity()} spots")
-        print(f"   Occupancy: {city.city_occupancy_rate()*100:.1f}%")
+        print(f"   Total capacity: {city.total_parking_capacity} spots")
+        print(f"   Occupancy: {city.city_occupancy_rate*100:.1f}%")
         
         return city
     

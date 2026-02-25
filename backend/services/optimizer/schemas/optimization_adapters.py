@@ -95,7 +95,7 @@ class SimulationAdapter:
         Returns:
             List of Driver instances
         """
-        num_drivers = int(city.total_parking_capacity() * self.drivers_per_zone_capacity)
+        num_drivers = int(city.total_parking_capacity * self.drivers_per_zone_capacity)
         return DriverGenerator(self.random_seed).generate_random_drivers(num_drivers, city)
 
 

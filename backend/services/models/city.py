@@ -2,7 +2,7 @@
 City models for parking simulation
 """
 
-from pydantic import BaseModel, Field, model_validator, ConfigDict
+from pydantic import BaseModel, Field, model_validator, ConfigDict, computed_field
 from typing import List, Tuple, Optional
 
 
@@ -260,24 +260,31 @@ class City(BaseModel):
 
 
     
+    @computed_field
+    @property
     def total_parking_capacity(self) -> int:
         """Calculate total parking capacity across all lots."""
         return sum(lot.maximum_capacity for lot in self.parking_zones)
-    
+
+    @computed_field
+    @property
     def total_occupied_spots(self) -> int:
         """Calculate total occupied spots across all lots."""
         return sum(lot.current_capacity for lot in self.parking_zones)
-    
+
+    @computed_field
+    @property
     def total_available_spots(self) -> int:
         """Calculate total available spots across all lots."""
         return sum(lot.available_spots() for lot in self.parking_zones)
-    
+
+    @computed_field
+    @property
     def city_occupancy_rate(self) -> float:
         """Calculate overall city occupancy rate."""
-        total_capacity = self.total_parking_capacity()
-        if total_capacity == 0:
+        if self.total_parking_capacity == 0:
             return 0.0
-        return self.total_occupied_spots() / total_capacity
+        return self.total_occupied_spots / self.total_parking_capacity
     
     def find_nearest_parking_zone(self, position: Tuple[float, float]) -> Optional[ParkingZone]:
         """Find the nearest parking lot to a given position."""

@@ -8,45 +8,6 @@ export default function InfoPanel({ zone, city, onClose, hasResults, bestScenari
   // ===== LOGIC =====
   if (!city) return null;
 
-  //City information
-
-  const numParkingZones = city.parking_zones.length;
-  const pointsOfInterest = city.point_of_interests.length;
-
-  const totalCapacity = () => {
-    let cap = 0;
-
-    for(let i = 0; i < city.parking_zones.length; i++) {
-        cap += city.parking_zones[i].maximum_capacity;
-    }
-
-    return cap;
-  };
-
-  const occupancy = () => {
-    let currentOcc = 0;
-    let maxCap = 0;
-
-    for(let i = 0; i < city.parking_zones.length; i++) {
-      currentOcc +=  city.parking_zones[i].current_capacity;
-      maxCap += city.parking_zones[i].maximum_capacity;
-    }
-
-    if (maxCap == 0) return 0;
-
-    return currentOcc / maxCap;
-  };
-
-  /*const totalRevenue = () => {
-    let rev = 0;
-
-    for (let i = 0; i < bestScenario.zones.length; i++) {
-      rev += bestScenario.zones[i].predicted_revenue;
-    }
-
-    return rev;
-  };*/
-
   const percentColor = (percent) => {
     const color =
       percent >= 85
@@ -158,8 +119,9 @@ export default function InfoPanel({ zone, city, onClose, hasResults, bestScenari
   }
 
   else {
-    const barColor = percentColor(occupancy);
-    
+    const occupancyPercent = city.city_occupancy_rate * 100;
+    const barColor = percentColor(occupancyPercent);
+
     return (
       <div className="info-panel">
       <div className="info-header">
@@ -168,36 +130,41 @@ export default function InfoPanel({ zone, city, onClose, hasResults, bestScenari
 
       <div className="info-body">
         <div className="info-item">
-          <span className="info-label">Bounds:</span> {/*is this really necessary? looks very clunky. */}
+          <span className="info-label">Bounds:</span>
           <span className="info-value">({city.min_latitude.toFixed(2)}, {city.max_latitude.toFixed(2)}) to ({city.min_longitude.toFixed(2)}, {city.max_longitude.toFixed(2)})</span>
         </div>
 
         <div className="info-item">
           <span className="info-label">Total Parking Zones:</span>
-          <span className="info-value">{numParkingZones}</span>
+          <span className="info-value">{city.parking_zones.length}</span>
         </div>
 
         <div className="info-item">
           <span className="info-label">Points of Interest:</span>
-          <span className="info-value">{pointsOfInterest}</span>
+          <span className="info-value">{city.point_of_interests.length}</span>
         </div>
 
         <div className="info-item">
           <span className="info-label">Total Capacity:</span>
-          <span className="info-value">{totalCapacity()}</span>
+          <span className="info-value">{city.total_parking_capacity}</span>
+        </div>
+
+        <div className="info-item">
+          <span className="info-label">Available Spots:</span>
+          <span className="info-value">{city.total_available_spots}</span>
         </div>
 
         <div className="info-item">
           <span className="info-label">Occupancy:</span>
           <div className="occupancy-display">
             <span style={{ color: barColor, fontWeight: 'bold' }}>
-              {occupancy().toFixed(2)}%
+              {occupancyPercent.toFixed(1)}%
             </span>
             <div className="occupancy-bar-small">
               <div
                 className="occupancy-fill-small"
                 style={{
-                  width: `${Math.min(100, occupancy())}%`,
+                  width: `${Math.min(100, occupancyPercent)}%`,
                   backgroundColor: barColor,
                 }}
               />
