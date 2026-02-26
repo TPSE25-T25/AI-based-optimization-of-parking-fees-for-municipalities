@@ -1,0 +1,35 @@
+name: smart-fee
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: smartfee-backend
+    container_name: smartfee-backend
+    ports:
+      - "6173:6173"
+    volumes:
+      - ./cache:/project/cache
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:6173/health')"]
+      interval: 1800s
+      timeout: 5s
+      retries: 5
+      start_period: 60s   # give Oryx/pip time to finish on first start
+
+  frontend:
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ""
+    image: smartfee-frontend
+    container_name: smartfee-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

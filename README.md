@@ -1,4 +1,4 @@
-# AI-based Optimization of Parking Fees for Municipalities
+# SmartFee: AI-based Optimization of Parking Fees for Municipalities
 
 A tool for city planners to find optimal parking fee schedules using multi-objective AI optimization. Load real or synthetic city parking data, run NSGA-III optimization across four competing KPIs, then select and visualize the best scenario through a weight-based preference interface.
 
