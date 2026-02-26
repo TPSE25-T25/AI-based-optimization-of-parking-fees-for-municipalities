@@ -12,6 +12,7 @@ export default function OptimizerControls({
   loadCity,
   optimizing,
   loading,
+  hasParkingZones,
 }) {
   // ===== RENDER =====
   return (
@@ -51,7 +52,8 @@ export default function OptimizerControls({
           <button
             className="optimizer-button"
             onClick={runOptimization}
-            disabled={optimizing || loading}
+            disabled={optimizing || loading || !hasParkingZones}
+            title={!hasParkingZones ? 'Load city data with parking zones first.' : 'Run optimization'}
           >
             {optimizing ? '⏳' : '▶️'}
           </button>
