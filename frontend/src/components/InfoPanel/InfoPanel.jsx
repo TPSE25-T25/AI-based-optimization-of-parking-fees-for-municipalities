@@ -178,19 +178,19 @@ export default function InfoPanel({ zone, city, onClose, hasResults, bestScenari
             <span className="info-value"
               style={{ color: '#27ae60', fontWeight: 'bold' }}
             >
-              #{bestScenario.scenario_id}
+              #{bestScenario.scenario_id} 
             </span>
           </div>
         )}
 
         {hasResults && (
           <div className="info-item">
-            <span className="info-label">Weight Score Match:</span>
+            <span className="info-label">Weight Match Score:</span>
             <span
               className="info-value"
               style={{ color: '#27ae60', fontWeight: 'bold' }}
             >
-              {bestScenario.weighted_score.toFixed(2)}%
+              {bestScenario.matching_score.toFixed(2)}%
             </span>
           </div>
         )}
@@ -209,6 +209,30 @@ export default function InfoPanel({ zone, city, onClose, hasResults, bestScenari
 
         {hasResults&& (
           <div className="info-item">
+            <span className="info-label">User Balance:</span>
+            <span
+              className="info-value"
+              style={{ color: '#27ae60', fontWeight: 'bold' }}
+            >
+              {(bestScenario.score_user_balance * 100).toFixed(2)}%
+            </span>
+          </div>
+        )}
+
+        {hasResults&& (
+          <div className="info-item">
+            <span className="info-label">Demand Drop:</span>
+            <span
+              className="info-value"
+              style={{ color: '#27ae60', fontWeight: 'bold' }}
+            >
+              {(bestScenario.score_demand_drop * 100).toFixed(2)}%
+            </span>
+          </div>
+        )}
+
+        {hasResults&& (
+          <div className="info-item">
             <span className="info-label">Occupancy Gap:</span>
             <span
               className="info-value"
@@ -218,6 +242,7 @@ export default function InfoPanel({ zone, city, onClose, hasResults, bestScenari
             </span>
           </div>
         )}
+
       </div>
     </div>
     );

@@ -90,7 +90,7 @@ class SolutionSelector:
             if score > best_score:
                 best_score = score
                 best_scenario = s
-                best_scenario.weighted_score = score  # Store the weighted score for reference
+                best_scenario.matching_score = score  # Store the matching score for reference
 
         print(f"🏆 Winner: Scenario #{best_scenario.scenario_id} (Weighted Score: {best_score:.2f})")
         print(f"   Details: Revenue={best_scenario.score_revenue}€ | Gap={best_scenario.score_occupancy_gap*100:.1f}%")

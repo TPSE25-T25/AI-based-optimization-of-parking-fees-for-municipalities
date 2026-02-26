@@ -20,7 +20,7 @@ class PricingScenario(BaseModel):
     """
     scenario_id: int
     zones: List[OptimizedZoneResult]
-    weighted_score: Optional[float] = None # Weighted score (maximize)
+    matching_score: Optional[float] = None # Weighted score (maximize)
     
     #The 4 objective values calculated by NSGA-III
     score_revenue: float        # f1: Revenue (maximize)

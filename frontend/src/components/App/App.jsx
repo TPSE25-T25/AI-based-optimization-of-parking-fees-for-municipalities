@@ -309,11 +309,11 @@ function App() {
         mapSnapshot,
         bestScenario: {
           scenario_id: selectedSolution.scenario_id,
+          matching_score: selectedSolution.matching_score,
           score_revenue: selectedSolution.score_revenue,
           score_occupancy_gap: selectedSolution.score_occupancy_gap,
           score_demand_drop: selectedSolution.score_demand_drop,
-          score_user_balance: selectedSolution.score_user_balance,
-          //score_weighted_score: selectedSolution.score_weighted_score
+          score_user_balance: selectedSolution.score_user_balance
         },
         optimizationResponseData: optimizationResponse,
       });
