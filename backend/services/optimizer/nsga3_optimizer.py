@@ -43,6 +43,7 @@ class NSGA3Optimizer(ABC):
         self.min_fee = optimizer_settings.min_fee
         self.max_fee = optimizer_settings.max_fee
         self.fee_increment = optimizer_settings.fee_increment
+        self.operating_hours_per_day = optimizer_settings.operating_hours_per_day
 
     def _convert_zones_to_numpy(self, zones: List[ParkingZone]) -> dict:
         """
@@ -61,7 +62,8 @@ class NSGA3Optimizer(ABC):
             "elasticities": np.array([z.elasticity for z in zones]),                # elasticities of all zones
             "current_occupancy": np.array([z.current_capacity / z.maximum_capacity if z.maximum_capacity > 0 else 0.0 for z in zones]),    # current occupancy of all zones
             "short_term_share": np.array([z.short_term_share for z in zones]),       # short term share of all zones
-            "target_occupancy": self.target_occupancy                     # target occupancy from settings
+            "target_occupancy": self.target_occupancy,                    # target occupancy from settings
+            "operating_hours_per_day": self.operating_hours_per_day       # daily operating hours for revenue scaling
         }
         return data
 
@@ -125,15 +127,25 @@ class NSGA3Optimizer(ABC):
                 min(z.max_fee for z in zones if cluster_to_idx[z.cluster_id] == i)
                 for i in range(n_clusters)
             ])
+            # Apply global optimizer min/max fee as hard constraints
+            xl = np.maximum(xl, self.min_fee)
+            xu = np.minimum(xu, self.max_fee)
             # Ensure xu >= xl in case of conflicting zone bounds within a cluster
             xu = np.maximum(xu, xl)
             n_vars = n_clusters
         else:
             # Fallback: original per-zone behavior (backward compatible)
             n_vars = len(zones)
-            xl = data["min_fees"]
-            xu = data["max_fees"]
+            # Apply global optimizer min/max fee as hard constraints on top of zone-level bounds
+            xl = np.maximum(data["min_fees"], self.min_fee)
+            xu = np.minimum(data["max_fees"], self.max_fee)
+            # Ensure xu >= xl in case of conflicting bounds
+            xu = np.maximum(xu, xl)
             zone_cluster_indices = None
+
+        # Keep data bounds in sync with the effective bounds used by the optimizer
+        data["min_fees"] = xl[zone_cluster_indices] if zone_cluster_indices is not None else xl
+        data["max_fees"] = xu[zone_cluster_indices] if zone_cluster_indices is not None else xu
                 
         def round_to_increment(fees, increment, min_fees, max_fees):
             """Round fees to nearest increment and ensure within bounds."""

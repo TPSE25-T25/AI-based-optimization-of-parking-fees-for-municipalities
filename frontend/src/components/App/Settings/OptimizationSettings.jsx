@@ -34,6 +34,7 @@ const INITIAL_SETTINGS = {
     minFee: 0,
     maxFee: 10,
     feeIncrement: 0.1,
+    operatingHoursPerDay: 10,
   },
   agent: {
     driversPerZoneCapacity: 2.0,
@@ -267,6 +268,13 @@ export default function OptimizationSettings({ dataSource, optimizerType, settin
             settings.optimizer.feeIncrement,
             (v) => updateSetting('optimizer', 'feeIncrement', Number(v)),
             { type: 'number', min: 0, step: '0.01' }
+          )}
+          {renderInputGroup(
+            'Operating Hours / Day',
+            settingsMeta?.operating_hours_per_day?.description || 'Hours per day the parking zone operates — scales predicted daily revenue',
+            settings.optimizer.operatingHoursPerDay,
+            (v) => updateSetting('optimizer', 'operatingHoursPerDay', Number(v)),
+            { type: 'number', min: 1, max: 24, step: '1' }
           )}
 
           {optimizerType === 'agent' && (
