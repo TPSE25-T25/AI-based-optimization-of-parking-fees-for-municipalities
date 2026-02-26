@@ -14,9 +14,9 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:6173/health')"]
-      interval: 10s
+      interval: 1800s
       timeout: 5s
-      retries: 10
+      retries: 5
       start_period: 60s   # give Oryx/pip time to finish on first start
 
   frontend:
