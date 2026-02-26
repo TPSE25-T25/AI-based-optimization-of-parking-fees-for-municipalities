@@ -216,6 +216,7 @@ function App() {
           min_fee: optimizer.minFee,
           max_fee: optimizer.maxFee,
           fee_increment: optimizer.feeIncrement,
+          operating_hours_per_day: optimizer.operatingHoursPerDay ?? 10,
           ...(optimizerType === 'agent' && {
             drivers_per_zone_capacity: agent.driversPerZoneCapacity,
             simulation_runs: agent.simulationRuns,

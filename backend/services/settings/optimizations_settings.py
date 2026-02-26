@@ -15,6 +15,7 @@ class OptimizationSettings(BaseModel):
     min_fee : float = Field(default=0.0, ge=0, description="Minimum allowable parking fee")
     max_fee : float = Field(default=10.0, ge=0, description="Maximum allowable parking fee")
     fee_increment: float = Field(default=0.25, gt=0, description="Increment step for parking fee adjustments")
+    operating_hours_per_day: float = Field(default=10.0, gt=0, description="Hours per day the parking zone is in operation (used to scale predicted daily revenue)")
 
 
 class AgentBasedSettings(OptimizationSettings):

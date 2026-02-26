@@ -104,12 +104,12 @@ export default function InfoPanel({ zone, city, onClose, hasResults, bestScenari
 
           {zone.predicted_revenue && (
             <div className="info-item">
-              <span className="info-label">Predicted Revenue:</span>
+              <span className="info-label">Predicted Daily Revenue:</span>
               <span
                 className="info-value"
                 style={{ color: '#27ae60', fontWeight: 'bold' }}
               >
-                ${zone.predicted_revenue.toFixed(2)}
+                ${zone.predicted_revenue.toFixed(2)}/day
               </span>
             </div>
           )}
@@ -197,12 +197,12 @@ export default function InfoPanel({ zone, city, onClose, hasResults, bestScenari
 
         {hasResults && (
           <div className="info-item">
-            <span className="info-label">Total Revenue:</span>
+            <span className="info-label">Total Daily Revenue:</span>
             <span
               className="info-value"
               style={{ color: '#27ae60', fontWeight: 'bold' }}
             >
-              {bestScenario.score_revenue.toFixed(2)} €
+              {bestScenario.score_revenue.toFixed(2)} €/day
             </span>
           </div>
         )}

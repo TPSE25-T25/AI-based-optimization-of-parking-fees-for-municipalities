@@ -89,8 +89,9 @@ class NSGA3OptimizerElasticity(NSGA3Optimizer):
         # - Max: 1.00 (100% capacity limit, parkings cannot be overfull)
         new_occupancy = np.clip(data["current_occupancy"] * (1 + total_demand_change), 0.05, 1.0)
 
-        # Calculate absolute Revenue per zone (New current_fee * Capacity * New Occupancy)
-        revenue_vector = current_fees * (data["capacities"] * new_occupancy)
+        # Calculate absolute Revenue per zone:
+        # fee * occupied_spaces * operating_hours → predicted daily revenue ($)
+        revenue_vector = current_fees * (data["capacities"] * new_occupancy) * data["operating_hours_per_day"]
 
         # ---------------------------------------------------------
         # Calculate Optimization Objectives (KPIs)

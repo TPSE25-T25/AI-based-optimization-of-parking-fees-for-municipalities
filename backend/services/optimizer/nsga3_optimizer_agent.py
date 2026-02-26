@@ -161,8 +161,9 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
             zone.current_fee = orig_fee
 
         # Extract occupancy and revenue per zone (in correct order)
+        # Revenue is scaled to daily totals (one turnover cycle × operating hours per day)
         occupancy = np.array([metrics.lot_occupancy_rates.get(id, 0.0) for id in self.zone_ids])
-        revenue = np.array([float(metrics.lot_revenues.get(id, 0.0)) for id in self.zone_ids])
+        revenue = np.array([float(metrics.lot_revenues.get(id, 0.0)) for id in self.zone_ids]) * self.operating_hours_per_day
 
         return {
             "occupancy": occupancy,
@@ -279,6 +280,12 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
                     rejected_count += 1
                     total_driver_cost += self.simulation.rejection_penalty
         
+        # Scale revenues to daily totals (simulation represents one turnover cycle;
+        # multiply by operating_hours_per_day to get daily revenue comparable to
+        # the elasticity model's fee × occupancy × capacity × hours formula)
+        total_revenue *= self.operating_hours_per_day
+        lot_revenues = {k: v * self.operating_hours_per_day for k, v in lot_revenues.items()}
+
         # Build metrics
         metrics = self.simulation._build_metrics(
             self.base_city, self.base_drivers, total_revenue, total_driver_cost,
