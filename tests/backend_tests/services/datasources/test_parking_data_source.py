@@ -40,6 +40,7 @@ def _ds_settings(
         search_radius=search_radius,
         default_current_fee=default_current_fee,
         random_seed=random_seed,
+        clustering_radius_m=300.0,
     )
 
 
@@ -105,39 +106,34 @@ def test_init_sets_attributes_from_settings():
     assert s.random_seed == 7
 
 
-def test_cluster_zones_empty_returns_empty(monkeypatch):
-    # If empty, it should return [] and never call KMeans
-    import backend.services.datasources.parking_data_source as mdl
-
-    monkeypatch.setattr(mdl, "KMeans", lambda *a, **k: (_ for _ in ()).throw(AssertionError("KMeans should not be called")))
+def test_cluster_zones_empty_returns_empty():
+    # If empty, it should return [] and never call DBSCAN
     s = DummyParkingDataSource(_ds_settings())
 
     assert s.cluster_zones([]) == []
 
 
-def test_cluster_zones_calls_kmeans_with_expected_clusters(monkeypatch, capsys):
+def test_cluster_zones_calls_dbscan_with_expected_params(monkeypatch, capsys):
     """
-    For 30 zones => n_clusters = max(1, int(30/15)) = 2
-    Ensures KMeans is created with correct params and fit called with Nx2 coords.
+    Ensures DBSCAN is created with correct eps (clustering_radius_m) and that
+    each zone gets a cluster_id attribute after clustering.
     """
     import backend.services.datasources.parking_data_source as mdl
 
     created = {}
 
-    class FakeKMeans:
-        def __init__(self, n_clusters, random_state, n_init):
-            created["n_clusters"] = n_clusters
-            created["random_state"] = random_state
-            created["n_init"] = n_init
-            self.fitted_on = None
-            self.labels_ = None
+    class FakeDBSCAN:
+        def __init__(self, eps, min_samples, metric):
+            created["eps"] = eps
+            created["min_samples"] = min_samples
+            created["metric"] = metric
 
-        def fit(self, X):
-            self.fitted_on = np.array(X)
-            created["fit_shape"] = self.fitted_on.shape
-            self.labels_ = np.zeros(len(X), dtype=int)
+        def fit_predict(self, X):
+            arr = np.array(X)
+            created["fit_shape"] = arr.shape
+            return np.zeros(len(X), dtype=int)
 
-    monkeypatch.setattr(mdl, "KMeans", FakeKMeans)
+    monkeypatch.setattr(mdl, "DBSCAN", FakeDBSCAN)
 
     s = DummyParkingDataSource(_ds_settings(random_seed=123))
     zones = [_zone(id=f"z{i}", position=(49.0 + i * 0.001, 8.4 + i * 0.001)) for i in range(30)]
@@ -146,45 +142,44 @@ def test_cluster_zones_calls_kmeans_with_expected_clusters(monkeypatch, capsys):
     captured = capsys.readouterr().out
 
     assert out is zones
-    assert created["n_clusters"] == 2
-    assert created["random_state"] == 123
-    assert created["n_init"] == 10
+    assert created["eps"] == 300.0
+    assert created["min_samples"] == 1
+    assert created["metric"] == "euclidean"
     assert created["fit_shape"] == (30, 2)
-    assert "Running K-Means" in captured
+    assert "DBSCAN" in captured
     assert "Clustering complete" in captured
+    for zone in zones:
+        assert hasattr(zone, "cluster_id")
 
 
-def test_cluster_zones_all_zero_coords_uses_fallback_indexing(monkeypatch, capsys):
+def test_cluster_zones_all_same_coords_grouped_into_one_cluster(monkeypatch, capsys):
     """
-    If all coords are (0,0), code falls back to 1D indexing coords: shape (n,1)
+    If all zones share the same coordinates, DBSCAN groups them into one cluster.
     """
     import backend.services.datasources.parking_data_source as mdl
 
     created = {}
 
-    class FakeKMeans:
-        def __init__(self, n_clusters, random_state, n_init):
-            self.fitted_on = None
-            self.labels_ = None
+    class FakeDBSCAN:
+        def __init__(self, eps, min_samples, metric):
+            pass
 
-        def fit(self, X):
+        def fit_predict(self, X):
             arr = np.array(X)
             created["fit_shape"] = arr.shape
-            created["fit_values_first_row"] = arr[0].tolist()
-            self.labels_ = np.zeros(len(X), dtype=int)
+            return np.zeros(len(X), dtype=int)
 
-    monkeypatch.setattr(mdl, "KMeans", FakeKMeans)
+    monkeypatch.setattr(mdl, "DBSCAN", FakeDBSCAN)
 
     s = DummyParkingDataSource(_ds_settings(random_seed=1))
-    zones = [_zone(id=f"z{i}", position=(0.0, 0.0)) for i in range(10)]
+    zones = [_zone(id=f"z{i}", position=(49.0, 8.4)) for i in range(10)]
 
     out = s.cluster_zones(zones)
-    captured = capsys.readouterr().out
 
     assert out is zones
-    assert "Warning: No geolocation found" in captured
-    assert created["fit_shape"] == (10, 1)
-    assert created["fit_values_first_row"] == [0]  # starts at 0
+    assert created["fit_shape"] == (10, 2)
+    for zone in zones:
+        assert zone.cluster_id == 0
 
 
 def test_export_results_to_csv_no_original_zones_prints_and_returns(tmp_path, capsys):

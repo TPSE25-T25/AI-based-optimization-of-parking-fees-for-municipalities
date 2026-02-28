@@ -411,10 +411,10 @@ class TestCityGenerator:
             assert len(city.parking_zones) > 0
             
             # Check capacity calculations work
-            total_capacity = city.total_parking_capacity()
+            total_capacity = city.total_parking_capacity
             assert total_capacity > 0
             
             # Check occupancy rate is valid
-            occupancy = city.city_occupancy_rate()
+            occupancy = city.city_occupancy_rate
             assert occupancy >= 0.0
             assert occupancy <= 1.0

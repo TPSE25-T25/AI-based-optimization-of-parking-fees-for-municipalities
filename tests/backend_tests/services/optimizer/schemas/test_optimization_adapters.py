@@ -99,7 +99,7 @@ class TestSimulationAdapterCreateDriversFromRequest:
         adapter = SimulationAdapter(drivers_per_zone_capacity=2.0, random_seed=99)
 
         # total capacity = 10 + 20 = 30, multiplier 2.0 => 60 drivers
-        expected_num = int(sample_city.total_parking_capacity() * 2.0)
+        expected_num = int(sample_city.total_parking_capacity * 2.0)
 
         # Patch DriverGenerator.generate_random_drivers to avoid randomness & heavy objects
         from backend.services.datasources.generator.driver_generator import DriverGenerator

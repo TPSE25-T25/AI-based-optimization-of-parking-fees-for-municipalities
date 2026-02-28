@@ -24,6 +24,7 @@ def _settings(**overrides):
         search_radius=5000,
         default_current_fee=2.0,
         random_seed=42,
+        clustering_radius_m=300.0,
     )
     base.update(overrides)
     return SimpleNamespace(**base)

@@ -287,19 +287,19 @@ class TestCity:
         z1 = _zone(id=1, maximum_capacity=100, current_capacity=80)
         z2 = _zone(id=2, name="B", position=(0.6, 0.6), maximum_capacity=50, current_capacity=50)
         c = _city(parking_zones=[z1, z2])
-        assert c.total_parking_capacity() == 150
-        assert c.total_occupied_spots() == 130
-        assert c.total_available_spots() == 20
-        assert c.city_occupancy_rate() == pytest.approx(130 / 150)
+        assert c.total_parking_capacity == 150
+        assert c.total_occupied_spots == 130
+        assert c.total_available_spots == 20
+        assert c.city_occupancy_rate == pytest.approx(130 / 150)
 
     def test_totals_empty_city(self):
         c = _city()
-        assert c.total_parking_capacity() == 0
-        assert c.total_occupied_spots() == 0
-        assert c.total_available_spots() == 0
+        assert c.total_parking_capacity == 0
+        assert c.total_occupied_spots == 0
+        assert c.total_available_spots == 0
 
     def test_occupancy_rate_empty_city(self):
-        assert _city().city_occupancy_rate() == 0.0
+        assert _city().city_occupancy_rate == 0.0
 
     # ── Spatial queries ──
 

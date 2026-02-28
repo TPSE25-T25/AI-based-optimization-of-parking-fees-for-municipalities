@@ -106,7 +106,8 @@ class TestNSGA3OptimizerDataConversion:
         # Check all expected keys are present
         expected_keys = {
             "current_current_fees", "min_fees", "max_fees", "capacities",
-            "elasticities", "current_occupancy", "short_term_share", "target_occupancy"
+            "elasticities", "current_occupancy", "short_term_share", "target_occupancy",
+            "operating_hours_per_day"
         }
         assert set(data.keys()) == expected_keys
 
@@ -267,9 +268,9 @@ class TestNSGA3OptimizerPhysicsCalculation:
 
         results = optimizer._calculate_physics(current_fees, data)
 
-        # Revenue should be: current_fee * capacity * occupancy
+        # Revenue should be: current_fee * capacity * occupancy * operating_hours_per_day
         for i in range(len(current_fees)):
-            expected_revenue = current_fees[i] * data["capacities"][i] * results["occupancy"][i]
+            expected_revenue = current_fees[i] * data["capacities"][i] * results["occupancy"][i] * data["operating_hours_per_day"]
             assert abs(results["revenue"][i] - expected_revenue) < 1e-6
 
     def test_calculate_physics_objectives_types(self, optimizer, optimization_request):

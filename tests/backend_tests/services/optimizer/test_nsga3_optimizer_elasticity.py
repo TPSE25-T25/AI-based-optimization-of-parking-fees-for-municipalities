@@ -115,7 +115,7 @@ class TestElasticityPhysics:
         fees = np.array([5.0, 6.0, 4.0], dtype=float)
         out = optimizer._calculate_physics(fees, data)
 
-        expected = fees * (data["capacities"] * out["occupancy"])
+        expected = fees * (data["capacities"] * out["occupancy"]) * data["operating_hours_per_day"]
         assert np.allclose(out["revenue"], expected, atol=1e-8)
 
     def test_fee_increase_reduces_occupancy_with_negative_elasticity(self, optimizer, data):

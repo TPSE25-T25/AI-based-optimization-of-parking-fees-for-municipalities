@@ -36,6 +36,7 @@ def _settings(
         search_radius=search_radius,
         default_current_fee=default_current_fee,
         random_seed=random_seed,
+        clustering_radius_m=300.0,
     )
 
 
