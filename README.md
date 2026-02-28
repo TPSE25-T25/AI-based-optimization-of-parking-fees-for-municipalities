@@ -1,6 +1,10 @@
 # SmartFee: AI-based Optimization of Parking Fees for Municipalities
 
-A tool for city planners to find optimal parking fee schedules using multi-objective AI optimization. Load real or synthetic city parking data, run NSGA-III optimization across four competing KPIs, then select and visualize the best scenario through a weight-based preference interface.
+A **simulation and feasibility prototype** — not a production-ready system — that supports municipalities and regional authorities in setting efficient, fair, and adaptable parking prices. Municipal parking pricing is typically set manually, based on limited data and political considerations. Legal price caps, heterogeneous parking-space ownership, and diverse user groups (commuters, residents, tourists) make evidence-based pricing difficult.
+
+This tool lets city planners load real or synthetic city parking data, run NSGA-III multi-objective optimization across four competing KPIs, and select and visualize the best Pareto-optimal scenario through a weight-based preference interface. It is designed to help municipalities **continuously evaluate and adjust pricing** and **predict the impact of new regulations before implementation**.
+
+**Primary users:** municipal decision-makers, planners, and administrators responsible for pricing strategies and automation. The system indirectly affects citizens, tourists, and local businesses by influencing parking availability, accessibility, and pricing fairness.
 
 ---
 
@@ -23,9 +27,13 @@ A tool for city planners to find optimal parking fee schedules using multi-objec
 ## Project Structure
 
 ```
+├── docker-compose.yml                 # Default CPU-only Docker setup
+├── docker-compose.cuda.yml            # CUDA override (GPU passthrough)
 ├── backend/
 │   ├── main.py                        # FastAPI entry point (uvicorn, port 6173)
 │   ├── requirements.txt               # Python dependencies
+│   ├── Dockerfile                     # Standard CPU image (python:3.11-slim)
+│   ├── Dockerfile.cuda                # CUDA image (nvidia/cuda:12.3.2)
 │   ├── start.bat                      # Windows startup script
 │   └── services/
 │       ├── api.py                     # All API route definitions
@@ -112,7 +120,25 @@ A tool for city planners to find optimal parking fee schedules using multi-objec
 
 ## Installation & Setup
 
-### Option 1: Windows startup scripts
+### Option 1: Docker (recommended)
+
+**CPU mode (default):**
+```bash
+docker-compose up --build
+```
+
+**CUDA mode** (requires NVIDIA GPU + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) on the host):
+```bash
+docker-compose -f docker-compose.yml -f docker-compose.cuda.yml up --build
+```
+
+This starts both the backend (port 6173) and frontend (port 5173) in containers. Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+
+The two Compose files are **merged** by Docker Compose — the base `docker-compose.yml` provides the full service definitions (including the frontend), and `docker-compose.cuda.yml` only overrides the backend service to swap in the CUDA image (`backend/Dockerfile.cuda`, based on `nvidia/cuda:12.3.2`) and add GPU device reservation. The frontend starts exactly as in the default setup; no separate command is needed.
+
+Without the CUDA override, the parallel engine automatically falls back to **CPU-parallel mode** (via joblib) and all functionality remains available.
+
+### Option 2: Windows startup scripts
 
 ```bash
 # Terminal 1 — Backend
@@ -124,7 +150,7 @@ cd frontend
 start.bat          # installs dependencies, starts Vite dev server on http://localhost:5173
 ```
 
-### Option 2: Manual setup
+### Option 3: Manual setup
 
 **Backend**
 ```bash
@@ -171,6 +197,8 @@ pytest              # runs all tests in tests/backend_tests/
 pytest --cov        # with coverage report
 ```
 
+The project targets **>80% statement coverage**. Tests are located in `tests/backend_tests/` and cover the core optimization logic, simulation engine, and API endpoints.
+
 ---
 
 ## Troubleshooting
@@ -190,6 +218,34 @@ pytest --cov        # with coverage report
 
 ---
 
+## Data Protection & Privacy
+
+This project is designed to comply with the **European General Data Protection Regulation (GDPR / DSGVO)**:
+
+- Synthetic data generated during simulation (e.g. mock driver records) is processed **in-memory only** and is **never persisted** to disk or database.
+- The SQLite database stores only **anonymised, aggregated optimization results** (pricing scenarios, zone configurations, KPI snapshots) — no personally identifiable information (PII).
+- The system follows the GDPR principles of **data minimisation** and **storage limitation**.
+
+---
+
+## Team
+
+TPSE WiSe 2025/26 — Thema 95 | AG: [ui!] Urban Mobility Innovations GmbH
+
+| Name | E-Mail |
+|---|---|
+| Dorothea Krahmann | dorothea.krahmann@gmail.com |
+| Julius Pantel | julius-pantel@web.de |
+| Igor Ricarte | igor.ricarte@stud.tu-darmstadt.de |
+| Şebnem Uçar | ucar.sebnem@yahoo.com |
+| Zied Miled | miled.zied01@gmail.com |
+
+**Supervisors:** Judith Gessenhardt, Stephan Borgert | **Advisor:** David Brauch
+
+---
+
 ## License
 
-University course project (T25 / TPSE) — educational use.
+Released under the **MIT License** — see [LICENSE](LICENSE) for details.
+
+This permissive open-source license allows anyone to freely use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the software. University course project (T25 / TPSE, WiSe 2025/26).

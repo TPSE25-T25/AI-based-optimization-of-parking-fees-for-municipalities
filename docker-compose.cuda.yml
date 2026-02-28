@@ -1,0 +1,24 @@
+# Docker Compose override for CUDA-enabled backend.
+#
+# Prerequisites on the host:
+#   - NVIDIA GPU with CUDA 12.x compatible drivers
+#   - NVIDIA Container Toolkit installed:
+#     https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+#
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.cuda.yml up --build
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.cuda
+    image: smartfee-backend-cuda
+    container_name: smartfee-backend-cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

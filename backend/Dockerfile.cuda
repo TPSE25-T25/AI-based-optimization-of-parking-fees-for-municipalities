@@ -1,0 +1,58 @@
+# CUDA-enabled backend image
+# Requires: NVIDIA GPU + drivers + NVIDIA Container Toolkit on the host
+# https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+#
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.cuda.yml up --build
+
+# ---- Build stage ----
+FROM nvidia/cuda:12.3.2-devel-ubuntu22.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Python 3.11 + build tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-dev \
+    python3-pip \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Make python3.11 the default python/pip
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
+    && update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1
+
+WORKDIR /build
+
+COPY backend/requirements.txt ./
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
+    && find /install -type d -name "tests" -exec rm -rf {} + 2>/dev/null; \
+       find /install -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null; \
+       find /install -name "*.pyc" -delete 2>/dev/null; \
+       true
+
+# ---- Production stage ----
+FROM nvidia/cuda:12.3.2-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Python 3.11 runtime only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
+    && update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1
+
+WORKDIR /project
+
+COPY --from=builder /install /usr/local
+COPY backend/ ./backend/
+
+# Tell numba where the CUDA libraries are
+ENV NUMBA_CUDA_DRIVER=/usr/local/cuda/lib64/libcuda.so
+ENV CUDA_HOME=/usr/local/cuda
+
+EXPOSE 6173
+
+CMD ["python", "backend/main.py"]
