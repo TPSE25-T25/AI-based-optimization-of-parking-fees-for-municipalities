@@ -84,6 +84,12 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
         self.driver_destinations_cache: Optional[np.ndarray] = None
         self.driver_max_fees_cache: Optional[np.ndarray] = None
         self.lot_positions_cache: Optional[np.ndarray] = None
+        # (n_drivers, n_lots) walking distances — computed once, reused every evaluation
+        self.walking_distances_cache: Optional[np.ndarray] = None
+        # (n_drivers,) desired parking times — avoids Python object access in hot loop
+        self.driver_parking_times_cache: Optional[np.ndarray] = None
+        # (n_lots,) maximum capacities — avoids Python object access in hot loop
+        self.zone_max_capacities_cache: Optional[np.ndarray] = None
 
     def _initialize_simulation_environment(self, city: City):
         """
@@ -117,6 +123,24 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
         )
         self.lot_positions_cache = np.array(
             [z.position for z in self.base_city.parking_zones], dtype=np.float32
+        )
+
+        # Pre-compute walking distances: (n_drivers, n_lots) matrix.
+        # Driver destinations never change during optimization, so this is computed once.
+        driver_dest = self.driver_destinations_cache[:, np.newaxis, :]  # (n_drivers, 1, 2)
+        lot_pos = self.lot_positions_cache[np.newaxis, :, :]             # (1, n_lots, 2)
+        self.walking_distances_cache = np.sqrt(
+            np.sum((driver_dest - lot_pos) ** 2, axis=2)
+        ).astype(np.float32)  # (n_drivers, n_lots)
+
+        # Pre-compute driver desired parking times (avoids Python object access in hot loop)
+        self.driver_parking_times_cache = np.array(
+            [d.desired_parking_time for d in self.base_drivers], dtype=np.float32
+        )
+
+        # Pre-compute zone maximum capacities (avoids Python object access in hot loop)
+        self.zone_max_capacities_cache = np.array(
+            [z.maximum_capacity for z in self.base_city.parking_zones], dtype=np.int32
         )
         
         # Get backend info
@@ -209,23 +233,31 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
     
     def _run_fast_simulation(self):
         """
-        Ultra-fast simulation using cached numpy arrays.
-        Avoids all array conversions and uses vectorized operations.
+        Ultra-fast simulation using pre-cached numpy arrays.
+        Key optimisations vs. the naïve loop:
+        - Walking distances pre-computed once during initialisation (n_drivers × n_lots matrix).
+        - Driver parking times pre-cached as a numpy array.
+        - Capacity tracking uses a numpy int-array counter instead of Python object calls.
+        - Revenue and walking distance totals computed with vectorised numpy ops after the
+          sequential capacity-enforcement pass (the only part that cannot be fully vectorised).
         """
         from backend.services.simulation.simulation import SimulationMetrics
-        
-        # Save original capacities
+
+        n_lots = len(self.base_city.parking_zones)
+        n_drivers = len(self.base_drivers)
+
+        # Save and reset capacities
         original_capacities = [lot.current_capacity for lot in self.base_city.parking_zones]
-        
-        # Reset capacities
         for lot in self.base_city.parking_zones:
             lot.current_capacity = 0
-        
-        # Get current lot state
+
+        # Build fee array for this evaluation (fees change each call — cannot be cached)
         lot_fees = np.array([z.current_fee for z in self.base_city.parking_zones], dtype=np.float32)
-        lot_occupancy = np.array([z.occupancy_rate() for z in self.base_city.parking_zones], dtype=np.float32)
-        
-        # Compute all driver decisions in one vectorized operation (THE FAST PART!)
+
+        # Occupancy is 0 for all lots right after reset — skip the list comprehension
+        lot_occupancy = np.zeros(n_lots, dtype=np.float32)
+
+        # Compute all driver-lot scores in one vectorised call (CUDA / CPU-parallel / CPU-vec)
         scores = self.simulation.decision_maker.parallel_engine.compute_driver_lot_scores(
             driver_positions=self.driver_positions_cache,
             driver_destinations=self.driver_destinations_cache,
@@ -238,64 +270,78 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
             walking_distance_weight=self.simulation.decision_maker.walking_distance_weight,
             availability_weight=self.simulation.decision_maker.availability_weight
         )
-        
-        # Mask full lots
-        lot_is_full = np.array([z.is_full() for z in self.base_city.parking_zones])
-        scores[:, lot_is_full] = np.inf
-        
-        # Select best lot for each driver
-        best_lot_indices = np.argmin(scores, axis=1)
-        
-        # Initialize metrics
-        total_revenue = 0.0
-        total_driver_cost = 0.0
-        total_walking_distance = 0.0
-        parked_count = 0
+        # No lots are full at reset — skip the full-lot masking step
+
+        # Best lot per driver
+        best_lot_indices = np.argmin(scores, axis=1)           # (n_drivers,)
+        best_scores = scores[np.arange(n_drivers), best_lot_indices]  # (n_drivers,)
+
+        # --- Sequential pass: enforce capacity constraints ---
+        # Uses numpy arrays instead of Python object attribute access for speed.
+        lot_capacity_counter = np.zeros(n_lots, dtype=np.int32)
+        parked_driver_idx: list[int] = []
+        parked_lot_idx: list[int] = []
         rejected_count = 0
-        lot_revenues = {lot.id: 0.0 for lot in self.base_city.parking_zones}
-        
-        # Apply decisions sequentially (capacity constraint)
-        for driver_idx, lot_idx in enumerate(best_lot_indices):
-            if scores[driver_idx, lot_idx] == np.inf:
-                # No suitable lot
+        total_driver_cost = 0.0
+
+        for driver_idx in range(n_drivers):
+            lot_idx = int(best_lot_indices[driver_idx])
+            if best_scores[driver_idx] == np.inf:
+                # No affordable / reachable lot
                 rejected_count += 1
                 total_driver_cost += self.simulation.rejection_penalty
+            elif lot_capacity_counter[lot_idx] < self.zone_max_capacities_cache[lot_idx]:
+                lot_capacity_counter[lot_idx] += 1
+                parked_driver_idx.append(driver_idx)
+                parked_lot_idx.append(lot_idx)
             else:
-                selected_lot = self.base_city.parking_zones[lot_idx]
-                if not selected_lot.is_full():
-                    # Park successfully
-                    selected_lot.current_capacity += 1
-                    driver = self.base_drivers[driver_idx]
-                    
-                    parking_cost = selected_lot.current_fee * driver.desired_parking_time / 60
-                    walking_distance = selected_lot.distance_to_point(driver.destination)
-                    
-                    total_revenue += parking_cost
-                    lot_revenues[selected_lot.id] += parking_cost
-                    total_driver_cost += parking_cost
-                    total_walking_distance += walking_distance
-                    parked_count += 1
-                else:
-                    # Lot became full
-                    rejected_count += 1
-                    total_driver_cost += self.simulation.rejection_penalty
-        
-        # Scale revenues to daily totals (simulation represents one turnover cycle;
-        # multiply by operating_hours_per_day to get daily revenue comparable to
-        # the elasticity model's fee × occupancy × capacity × hours formula)
-        total_revenue *= self.operating_hours_per_day
-        lot_revenues = {k: v * self.operating_hours_per_day for k, v in lot_revenues.items()}
+                # Lot filled up during this pass
+                rejected_count += 1
+                total_driver_cost += self.simulation.rejection_penalty
 
-        # Build metrics
+        # --- Vectorised post-pass: compute revenue and walking distances at once ---
+        total_revenue = 0.0
+        total_walking_distance = 0.0
+        lot_revenues = {zone.id: 0.0 for zone in self.base_city.parking_zones}
+        parked_count = len(parked_driver_idx)
+
+        if parked_count > 0:
+            pd_arr = np.array(parked_driver_idx, dtype=np.int32)
+            pl_arr = np.array(parked_lot_idx, dtype=np.int32)
+
+            # parking_cost = fee × desired_time_hours  (one entry per parked driver)
+            parking_costs = lot_fees[pl_arr] * self.driver_parking_times_cache[pd_arr] / 60.0
+
+            # Walking distances from pre-computed (n_drivers, n_lots) matrix
+            walking_dists = self.walking_distances_cache[pd_arr, pl_arr]
+
+            total_revenue = float(np.sum(parking_costs)) * self.operating_hours_per_day
+            total_walking_distance = float(np.sum(walking_dists))
+            total_driver_cost += float(np.sum(parking_costs))  # unscaled, like the original
+
+            # Per-lot revenues — np.bincount is O(n_drivers), far faster than a dict loop
+            lot_rev_arr = (
+                np.bincount(pl_arr, weights=parking_costs, minlength=n_lots)
+                * self.operating_hours_per_day
+            )
+            lot_revenues = {
+                zone.id: float(lot_rev_arr[i])
+                for i, zone in enumerate(self.base_city.parking_zones)
+            }
+
+        # Apply final per-lot capacities so _build_metrics sees correct occupancy rates
+        for i, lot in enumerate(self.base_city.parking_zones):
+            lot.current_capacity = int(lot_capacity_counter[i])
+
         metrics = self.simulation._build_metrics(
             self.base_city, self.base_drivers, total_revenue, total_driver_cost,
             total_walking_distance, parked_count, rejected_count, lot_revenues
         )
-        
-        # Restore capacities
+
+        # Restore original capacities
         for lot, orig_capacity in zip(self.base_city.parking_zones, original_capacities):
             lot.current_capacity = orig_capacity
-        
+
         return metrics
     def optimize(self,  city: City) -> List[PricingScenario]:
         """
