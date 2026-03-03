@@ -206,7 +206,7 @@ class TestNSGA3OptimizerAgentBased:
         assert len(optimizer.base_drivers) == 2
 
         assert optimizer.zone_ids == [1, 2]
-        assert optimizer.original_fees == [2.0, 3.0]
+        # original_fees is no longer cached separately; _run_fast_simulation is stateless
 
         # Cached arrays should exist with correct shapes
         assert optimizer.driver_positions_cache.shape == (2, 2)
@@ -237,10 +237,12 @@ class TestNSGA3OptimizerAgentBased:
         sample_city.parking_zones[1].current_capacity = 4
         before_caps = [z.current_capacity for z in sample_city.parking_zones]
 
-        metrics = optimizer._run_fast_simulation()
+        # _run_fast_simulation is stateless: pass fees explicitly; city is never mutated
+        lot_fees = np.array([z.current_fee for z in sample_city.parking_zones], dtype=np.float32)
+        metrics = optimizer._run_fast_simulation(lot_fees)
 
         after_caps = [z.current_capacity for z in sample_city.parking_zones]
-        assert after_caps == before_caps, "Capacities must be restored after _run_fast_simulation"
+        assert after_caps == before_caps, "Capacities must not be modified by _run_fast_simulation"
         assert metrics is not None
 
     def test_simulate_scenario_restores_original_fees(self, optimizer, sample_city, monkeypatch):

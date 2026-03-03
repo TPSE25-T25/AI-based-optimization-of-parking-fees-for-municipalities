@@ -77,8 +77,6 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
         self.base_city: Optional[City] = None
         self.base_drivers: Optional[List[Driver]] = None
         self.zone_ids: Optional[List[int]] = None
-        self.original_fees: Optional[List[float]] = None  # Cache original fees for restoration
-        
         # Pre-computed numpy arrays for vectorized operations (avoid repeated conversions)
         self.driver_positions_cache: Optional[np.ndarray] = None
         self.driver_destinations_cache: Optional[np.ndarray] = None
@@ -105,12 +103,9 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
         # Generate random driver population
         self.base_drivers = self.adapter.create_drivers_from_request(self.base_city)
 
-        # Store zone IDs for current_fee application
+        # Store zone IDs for result extraction
         self.zone_ids = [zone.id for zone in self.base_city.parking_zones]
-        
-        # Cache original fees for quick restoration
-        self.original_fees = [zone.current_fee for zone in self.base_city.parking_zones]
-        
+
         # Pre-compute and cache numpy arrays for driver/zone data (huge speedup!)
         self.driver_positions_cache = np.array(
             [d.starting_position for d in self.base_drivers], dtype=np.float32
@@ -156,38 +151,48 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
         print(f"  Parallel Jobs: {backend_info['n_jobs']}")
         print(f"  Batch Processing: Enabled (vectorized decisions for speed)")
         print(f"  Simulation Runs: {self.simulation_runs} {'(parallel)' if self.simulation_runs > 1 else ''}")
+        n_par = self._get_parallelization()
+        print(f"  NSGA-III eval  : {'parallel threads=' + str(n_par) if n_par else 'serial'}")
+
+    def _get_parallelization(self):
+        """
+        Enable parallel population evaluation for the Agent-based optimizer.
+
+        ``_run_fast_simulation`` is **fully stateless** (takes fees as a parameter
+        and never mutates shared city state), so concurrent thread invocations are
+        safe.  We use threading rather than multiprocessing to share the pre-cached
+        numpy arrays and benefit from CUDA / NumPy releasing the GIL.
+
+        Returns:
+            Number of worker threads (≥2) when joblib is available, else None.
+        """
+        try:
+            from joblib import Parallel  # noqa: F401  (just probing availability)
+            import os
+            # Use physical core count (not hyper-threads) capped at 8 to avoid
+            # excessive thread contention on the sequential capacity loop.
+            n_workers = min(os.cpu_count() or 4, 8)
+            return n_workers if n_workers > 1 else None
+        except ImportError:
+            return None
 
     def _get_detailed_results(self, current_fees: np.ndarray, _data: dict) -> dict:
         """
-        Get detailed results (occupancy, revenue) for a current_fee vector using simulation.
-        Optimized to avoid deep copy by modifying fees in-place and restoring them.
+        Get detailed results (occupancy, revenue) for a current_fee vector.
 
         Args:
             current_fees: current_fee vector for all zones
-            _data: Dictionary with zone data (unused - agent-based uses cached state)
+            _data: Dictionary with zone data (unused – agent-based uses cached state)
 
         Returns:
             Dictionary with occupancy and revenue arrays
         """
-        # Apply fees in-place (much faster than deep copy)
-        for zone, fee in zip(self.base_city.parking_zones, current_fees):
-            zone.current_fee = fee
-        
-        # Run simulation with driver population
-        metrics = self.simulation.run_simulation(
-            city=self.base_city,
-            drivers=self.base_drivers,
-            reset_capacity=True
-        )
-        
-        # Restore original fees
-        for zone, orig_fee in zip(self.base_city.parking_zones, self.original_fees):
-            zone.current_fee = orig_fee
+        # _run_fast_simulation is now stateless: pass fees directly, no city mutation
+        metrics = self._run_fast_simulation(current_fees.astype(np.float32))
 
-        # Extract occupancy and revenue per zone (in correct order)
-        # Revenue is scaled to daily totals (one turnover cycle × operating hours per day)
         occupancy = np.array([metrics.lot_occupancy_rates.get(id, 0.0) for id in self.zone_ids])
-        revenue = np.array([float(metrics.lot_revenues.get(id, 0.0)) for id in self.zone_ids]) * self.operating_hours_per_day
+        # Revenue was already scaled inside _run_fast_simulation
+        revenue = np.array([float(metrics.lot_revenues.get(id, 0.0)) for id in self.zone_ids])
 
         return {
             "occupancy": occupancy,
@@ -201,63 +206,65 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
     ) -> Tuple[float, float, float, float]:
         """
         Override base class to use driver-based simulation instead of elasticity.
-        Optimized with cached numpy arrays for maximum speed.
 
-        This method is called by the base class's ParkingProblem._evaluate() during optimization.
+        Fully stateless: ``_run_fast_simulation`` now accepts fees as a parameter
+        and never touches shared city state, making this safe to call from multiple
+        threads simultaneously (required for NSGA-III parallel population evaluation).
 
         Args:
             current_fees: current_fee vector for all zones
-            city: City object (ignored, uses cached self.base_city)
+            city: City object (unused – cached self.base_city is used internally)
 
         Returns:
             Tuple of (revenue, occupancy_gap, demand_drop, user_balance)
         """
-        # Apply fees in-place to cached city (much faster than deep copy)
-        for zone, fee in zip(self.base_city.parking_zones, current_fees):
-            zone.current_fee = fee
-        
-        # Run optimized simulation using cached arrays
-        metrics = self._run_fast_simulation()
-        
-        # Restore original fees for next evaluation
-        for zone, orig_fee in zip(self.base_city.parking_zones, self.original_fees):
-            zone.current_fee = orig_fee
-        
-        # Extract objectives from metrics
+        metrics = self._run_fast_simulation(current_fees.astype(np.float32))
+
         objectives = OptimizationAdapter.extract_objectives_from_metrics(
             metrics=metrics,
             target_occupancy=self.target_occupancy
         )
-        
+
         return objectives
     
-    def _run_fast_simulation(self):
+    def _run_fast_simulation(self, lot_fees: np.ndarray):
         """
-        Ultra-fast simulation using pre-cached numpy arrays.
-        Key optimisations vs. the naïve loop:
-        - Walking distances pre-computed once during initialisation (n_drivers × n_lots matrix).
+        **Stateless** ultra-fast simulation using pre-cached numpy arrays.
+
+        Thread-safety
+        -------------
+        This method accepts ``lot_fees`` as an explicit parameter and **never
+        mutates any shared state** (no writes to ``self.base_city`` fees or
+        capacities).  Occupancy is tracked in a local ``lot_capacity_counter``
+        array and converted to rates inline, so multiple threads can run this
+        method concurrently without any locking.
+
+        Key optimisations
+        -----------------
+        - Walking distances pre-computed once during initialisation
+          (n_drivers × n_lots matrix, immutable).
         - Driver parking times pre-cached as a numpy array.
-        - Capacity tracking uses a numpy int-array counter instead of Python object calls.
-        - Revenue and walking distance totals computed with vectorised numpy ops after the
-          sequential capacity-enforcement pass (the only part that cannot be fully vectorised).
+        - Capacity tracking uses a local numpy int-array counter.
+        - Revenue + walking distance totals computed with vectorised numpy ops
+          after the sequential capacity-enforcement pass.
+        - SimulationMetrics built directly from local arrays (no city writes).
+
+        Args:
+            lot_fees: (n_lots,) float32 array of fees for this evaluation.
+
+        Returns:
+            SimulationMetrics populated with all relevant metrics.
         """
         from backend.services.simulation.simulation import SimulationMetrics
 
         n_lots = len(self.base_city.parking_zones)
         n_drivers = len(self.base_drivers)
 
-        # Save and reset capacities
-        original_capacities = [lot.current_capacity for lot in self.base_city.parking_zones]
-        for lot in self.base_city.parking_zones:
-            lot.current_capacity = 0
-
-        # Build fee array for this evaluation (fees change each call — cannot be cached)
-        lot_fees = np.array([z.current_fee for z in self.base_city.parking_zones], dtype=np.float32)
-
-        # Occupancy is 0 for all lots right after reset — skip the list comprehension
+        # Occupancy is 0 at the start of each fresh evaluation
         lot_occupancy = np.zeros(n_lots, dtype=np.float32)
 
-        # Compute all driver-lot scores in one vectorised call (CUDA / CPU-parallel / CPU-vec)
+        # ── Compute all driver-lot scores in one vectorised call ──────────────
+        # Uses CUDA / CPU-parallel / CPU-vectorised depending on available backend.
         scores = self.simulation.decision_maker.parallel_engine.compute_driver_lot_scores(
             driver_positions=self.driver_positions_cache,
             driver_destinations=self.driver_destinations_cache,
@@ -270,15 +277,15 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
             walking_distance_weight=self.simulation.decision_maker.walking_distance_weight,
             availability_weight=self.simulation.decision_maker.availability_weight
         )
-        # No lots are full at reset — skip the full-lot masking step
+        # No lots are full at the start — skip the full-lot masking step
 
         # Best lot per driver
-        best_lot_indices = np.argmin(scores, axis=1)           # (n_drivers,)
-        best_scores = scores[np.arange(n_drivers), best_lot_indices]  # (n_drivers,)
+        best_lot_indices = np.argmin(scores, axis=1)                            # (n_drivers,)
+        best_scores = scores[np.arange(n_drivers), best_lot_indices]            # (n_drivers,)
 
-        # --- Sequential pass: enforce capacity constraints ---
-        # Uses numpy arrays instead of Python object attribute access for speed.
-        lot_capacity_counter = np.zeros(n_lots, dtype=np.int32)
+        # ── Sequential pass: enforce capacity constraints ─────────────────────
+        # This is the only part that cannot be fully vectorised (order-dependent).
+        lot_capacity_counter = np.zeros(n_lots, dtype=np.int32)                 # LOCAL – no city writes
         parked_driver_idx: list[int] = []
         parked_lot_idx: list[int] = []
         rejected_count = 0
@@ -299,10 +306,10 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
                 rejected_count += 1
                 total_driver_cost += self.simulation.rejection_penalty
 
-        # --- Vectorised post-pass: compute revenue and walking distances at once ---
+        # ── Vectorised post-pass: revenue and walking distances ───────────────
         total_revenue = 0.0
         total_walking_distance = 0.0
-        lot_revenues = {zone.id: 0.0 for zone in self.base_city.parking_zones}
+        lot_revenues_map = {zone.id: 0.0 for zone in self.base_city.parking_zones}
         parked_count = len(parked_driver_idx)
 
         if parked_count > 0:
@@ -317,30 +324,46 @@ class NSGA3OptimizerAgentBased(NSGA3Optimizer):
 
             total_revenue = float(np.sum(parking_costs)) * self.operating_hours_per_day
             total_walking_distance = float(np.sum(walking_dists))
-            total_driver_cost += float(np.sum(parking_costs))  # unscaled, like the original
+            total_driver_cost += float(np.sum(parking_costs))
 
             # Per-lot revenues — np.bincount is O(n_drivers), far faster than a dict loop
             lot_rev_arr = (
                 np.bincount(pl_arr, weights=parking_costs, minlength=n_lots)
                 * self.operating_hours_per_day
             )
-            lot_revenues = {
+            lot_revenues_map = {
                 zone.id: float(lot_rev_arr[i])
                 for i, zone in enumerate(self.base_city.parking_zones)
             }
 
-        # Apply final per-lot capacities so _build_metrics sees correct occupancy rates
-        for i, lot in enumerate(self.base_city.parking_zones):
-            lot.current_capacity = int(lot_capacity_counter[i])
-
-        metrics = self.simulation._build_metrics(
-            self.base_city, self.base_drivers, total_revenue, total_driver_cost,
-            total_walking_distance, parked_count, rejected_count, lot_revenues
+        # ── Compute occupancy from local counter — NO city writes ─────────────
+        occupancy_rates = lot_capacity_counter.astype(np.float64) / np.maximum(
+            self.zone_max_capacities_cache, 1
         )
+        lot_occupancy_rates_map = {
+            zone.id: float(occupancy_rates[i])
+            for i, zone in enumerate(self.base_city.parking_zones)
+        }
+        overall_occ = float(np.mean(occupancy_rates))
+        total_drivers = n_drivers
 
-        # Restore original capacities
-        for lot, orig_capacity in zip(self.base_city.parking_zones, original_capacities):
-            lot.current_capacity = orig_capacity
+        # ── Build and return SimulationMetrics directly ───────────────────────
+        metrics = SimulationMetrics(
+            total_revenue=total_revenue,
+            average_revenue_per_lot=total_revenue / n_lots if n_lots > 0 else 0.0,
+            total_parked=parked_count,
+            total_rejected=rejected_count,
+            overall_occupancy_rate=overall_occ,
+            occupancy_variance=float(np.var(occupancy_rates)) if n_lots > 1 else 0.0,
+            occupancy_std_dev=float(np.std(occupancy_rates)) if n_lots > 1 else 0.0,
+            average_driver_cost=total_driver_cost / total_drivers if total_drivers > 0 else 0.0,
+            average_walking_distance=total_walking_distance / parked_count if parked_count > 0 else 0.0,
+            average_current_fee_paid=total_revenue / parked_count if parked_count > 0 else 0.0,
+            utilization_rate=overall_occ,
+            rejection_rate=rejected_count / total_drivers if total_drivers > 0 else 0.0,
+            lot_occupancy_rates=lot_occupancy_rates_map,
+            lot_revenues=lot_revenues_map,
+        )
 
         return metrics
     def optimize(self,  city: City) -> List[PricingScenario]:

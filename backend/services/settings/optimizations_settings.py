@@ -24,11 +24,11 @@ class AgentBasedSettings(OptimizationSettings):
     Inherits from the base Configuration and adds specific parameters.
     """
     optimizer_type: Literal["agent"] = "agent"
-    drivers_per_zone_capacity: float = Field(default=2.0, gt=0, description="Multiplier for driver generation (e.g., 2.0 = 200% of capacity)")
-    simulation_runs: int = Field(default=3, ge=1, description="Number of simulation runs per evaluation for averaging")
+    drivers_per_zone_capacity: float = Field(default=1.5, gt=0, description="Multiplier for driver generation (e.g., 1.3 = 130% of capacity). Keep slightly above 1.0 so capacity pressure exists and fee changes can price drivers out, giving the optimizer meaningful signals.")
+    simulation_runs: int = Field(default=1, ge=1, description="Number of simulation runs per evaluation for averaging. Use 1 for the deterministic fast path; increase only when stochastic averaging is needed.")
     
     # Driver Decision Weights
-    driver_fee_weight: float = Field(default=1.5, ge=0, description="Driver's fee sensitivity weight")
-    driver_distance_to_lot_weight: float = Field(default=0.8, ge=0, description="Driver's driving distance sensitivity")
-    driver_walking_distance_weight: float = Field(default=2.0, ge=0, description="Driver's walking distance sensitivity")
-    driver_availability_weight: float = Field(default=0.5, ge=0, description="Driver's lot availability sensitivity")
+    driver_fee_weight: float = Field(default=2.0, ge=0, description="Driver's fee sensitivity weight. Higher values make drivers strongly prefer cheaper lots, ensuring fee changes meaningfully redirect demand across zones.")
+    driver_distance_to_lot_weight: float = Field(default=0.5, ge=0, description="Driver's driving distance sensitivity")
+    driver_walking_distance_weight: float = Field(default=0.5, ge=0, description="Driver's walking distance sensitivity")
+    driver_availability_weight: float = Field(default=1, ge=0, description="Driver's lot availability sensitivity. Higher values create realistic crowding avoidance, causing occupancy to vary across zones and making spatial equity a meaningful optimization objective.")

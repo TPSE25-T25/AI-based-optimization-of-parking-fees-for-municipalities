@@ -31,12 +31,12 @@ def test_optimization_custom():
 def test_agent_based_defaults():
     s = AgentBasedSettings()
     assert s.optimizer_type == "agent"
-    assert s.drivers_per_zone_capacity == 2.0
-    assert s.simulation_runs == 3
-    assert s.driver_fee_weight == 1.5
-    assert s.driver_distance_to_lot_weight == 0.8
-    assert s.driver_walking_distance_weight == 2.0
-    assert s.driver_availability_weight == 0.5
+    assert s.drivers_per_zone_capacity == 1.5
+    assert s.simulation_runs == 1
+    assert s.driver_fee_weight == 2.0
+    assert s.driver_distance_to_lot_weight == 0.5
+    assert s.driver_walking_distance_weight == 0.5
+    assert s.driver_availability_weight == 1.0
 
 
 def test_agent_based_inherits_optimization():

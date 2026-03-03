@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod
 from dataclasses import Field
-from typing import List, Tuple
+from typing import List, Tuple, Optional
+import os
 import numpy as np
 from pymoo.algorithms.moo.nsga3 import NSGA3
-from pymoo.core.problem import ElementwiseProblem
+from pymoo.core.problem import Problem          # batch interface: _evaluate receives full population matrix
 from pymoo.optimize import minimize
 from pymoo.util.ref_dirs import get_reference_directions
 from pymoo.termination import get_termination
@@ -15,6 +16,21 @@ from backend.services.models.city import City, ParkingZone
 from backend.services.optimizer.schemas.optimization_schema import PricingScenario, OptimizedZoneResult
 from backend.services.settings.optimizations_settings import OptimizationSettings
 from backend.services.optimizer.solution_selector import SolutionSelector
+
+# ---------------------------------------------------------------------------
+# Module-level parallel / CUDA availability detection (mirrors parallel_engine)
+# ---------------------------------------------------------------------------
+try:
+    from numba import cuda as _numba_cuda
+    _CUDA_AVAILABLE: bool = _numba_cuda.is_available()
+except Exception:
+    _CUDA_AVAILABLE = False
+
+try:
+    from joblib import Parallel as _Parallel, delayed as _delayed
+    _JOBLIB_AVAILABLE = True
+except ImportError:
+    _JOBLIB_AVAILABLE = False
 
 
 class NSGA3Optimizer(ABC):
@@ -104,6 +120,20 @@ class NSGA3Optimizer(ABC):
         pass
 
 
+    def _get_parallelization(self) -> Optional[int]:
+        """
+        Return the number of parallel worker threads to use when evaluating the
+        population during optimization, or ``None`` for serial evaluation.
+
+        The default implementation (base class) is always serial.  Subclasses
+        override this to opt-in to parallel evaluation when their
+        ``_simulate_scenario`` implementation is thread-safe.
+
+        Returns:
+            Number of worker threads, or None for serial evaluation.
+        """
+        return None
+
     def optimize(self,  city: City) -> List[PricingScenario]:
         # Step 1: Extract zone data
         zones = city.parking_zones
@@ -155,25 +185,53 @@ class NSGA3Optimizer(ABC):
             return np.clip(rounded, min_fees, max_fees)
 
         """ The ParkingProblem class acts as an adapter... """
-        class ParkingProblem(ElementwiseProblem):
-            def __init__(self, optimizer_instance):
-                # n_var = number of zones
+        n_parallel = self._get_parallelization()
+
+        class ParkingProblem(Problem):
+            """
+            pymoo Problem adapter.
+
+            Inherits from ``Problem`` (not ``ElementwiseProblem``) so that
+            ``_evaluate`` receives the **entire population matrix** in a single
+            call (shape ``[pop_size, n_vars]``).  This allows us to dispatch
+            evaluations via a thread-pool when ``n_parallel > 1``.
+
+            Thread-safety contract
+            ----------------------
+            * Elasticity optimizer  →  ``n_parallel=None`` (serial).  Each
+              ``_simulate_scenario`` call is pure NumPy but evaluations are
+              fast enough that thread overhead would dominate.
+            * Agent-based optimizer →  ``n_parallel=n_workers``.
+              ``_run_fast_simulation`` has been made **fully stateless**
+              (no shared-city mutation), so concurrent threads are safe.
+            """
+
+            def __init__(self_, optimizer_instance):
                 super().__init__(n_var=n_vars, n_obj=4, n_ieq_constr=0, xl=xl, xu=xu)
-                self.optimizer = optimizer_instance
+                self_.optimizer = optimizer_instance
 
-            def _evaluate(self, x, out, *args, **kwargs):
-                # Round fees to discrete increments before evaluation
-                x_rounded = round_to_increment(x, self.optimizer.fee_increment, xl, xu)
+            def _eval_single(self_, x: np.ndarray) -> np.ndarray:
+                """Evaluate a single solution vector → objective array [-f1, f2, f3, f4]."""
+                x_rounded = round_to_increment(x, self_.optimizer.fee_increment, xl, xu)
+                zone_fees = x_rounded[zone_cluster_indices] if zone_cluster_indices is not None else x_rounded
+                f1, f2, f3, f4 = self_.optimizer._simulate_scenario(zone_fees, city.parking_zones)
+                return np.array([-f1, f2, f3, f4])
 
-                # Expand cluster-level fees to zone-level fees if clustering is active
-                if zone_cluster_indices is not None:
-                    zone_fees = x_rounded[zone_cluster_indices]
+            def _evaluate(self_, X, out, *args, **kwargs):
+                """Evaluate the full population X (shape: [pop_size, n_vars])."""
+                n_solutions = X.shape[0]
+
+                if n_parallel is not None and n_parallel > 1 and _JOBLIB_AVAILABLE:
+                    # Parallel evaluation via a thread-pool.
+                    # NumPy/CUDA operations release the GIL, so threads run truly
+                    # concurrently for the heavy-lifting part of each simulation.
+                    F_rows = _Parallel(n_jobs=n_parallel, backend="threading")(
+                        _delayed(self_._eval_single)(X[i]) for i in range(n_solutions)
+                    )
                 else:
-                    zone_fees = x_rounded
+                    F_rows = [self_._eval_single(X[i]) for i in range(n_solutions)]
 
-                f1, f2, f3, f4 = self.optimizer._simulate_scenario(zone_fees, city.parking_zones)
-
-                out["F"] = [-f1, f2, f3, f4]
+                out["F"] = np.array(F_rows)
 
         # create an instance of the problem
         problem = ParkingProblem(self)
@@ -203,6 +261,12 @@ class NSGA3Optimizer(ABC):
         # -verbose: Print progress to console
 
         print(" Starting NSGA-III Execution ")
+        _par_info = (
+            f"parallel threads={n_parallel}" if n_parallel and n_parallel > 1 and _JOBLIB_AVAILABLE
+            else "serial (no threading)"
+        )
+        print(f"  CUDA available : {_CUDA_AVAILABLE}")
+        print(f"  Eval strategy  : {_par_info}")
         res = minimize(problem, algorithm, termination, seed=self.random_seed, verbose=True)               # Run the optimization
         print(f" Optimization finished! Found {len(res.X)} solutions. ")
 

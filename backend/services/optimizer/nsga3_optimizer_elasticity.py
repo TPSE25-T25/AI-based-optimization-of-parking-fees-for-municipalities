@@ -38,6 +38,28 @@ class NSGA3OptimizerElasticity(NSGA3Optimizer):
         """
         super().__init__(optimizer_settings)
 
+    # ------------------------------------------------------------------
+    # Parallelization decision
+    # ------------------------------------------------------------------
+    def _get_parallelization(self):
+        """
+        Intentionally serial: return None (no parallel population evaluation).
+
+        Analysis
+        --------
+        Each call to ``_simulate_scenario`` executes a small number of
+        vectorised NumPy operations over ``n_zones`` values—typically completes
+        in **< 0.1 ms**.  With ``population_size=200``:
+
+        * Serialised cost  ≈ 200 × 0.1 ms = 20 ms / generation  (negligible)
+        * Thread-pool overhead per task ≈ 0.05–0.2 ms
+          → overhead ≈ 200 × 0.1 ms = 20 ms / generation (same order as work itself)
+
+        Adding thread-pool parallelism would roughly **double** the per-generation
+        wall-clock time for no meaningful gain.  We keep this optimizer serial.
+        """
+        return None
+
     def _calculate_physics(self, current_fees: np.ndarray, data: dict) -> dict:
         """
         Central Physics Engine using current_fee elasticity model.

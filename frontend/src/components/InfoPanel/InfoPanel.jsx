@@ -78,7 +78,7 @@ export default function InfoPanel({ zone, city, onClose, hasResults, bestScenari
             </div>
           )}
 
-          {zone.new_fee && (
+          {zone.new_fee != null && (
             <div className="info-item">
               <span className="info-label">New Fee:</span>
               <span
@@ -90,7 +90,7 @@ export default function InfoPanel({ zone, city, onClose, hasResults, bestScenari
             </div>
           )}
 
-          {zone.predicted_occupancy && (
+          {zone.predicted_occupancy != null && (
             <div className="info-item">
               <span className="info-label">Predicted Occupancy:</span>
               <span
@@ -102,7 +102,7 @@ export default function InfoPanel({ zone, city, onClose, hasResults, bestScenari
             </div>
           )}
 
-          {zone.predicted_revenue && (
+          {zone.predicted_revenue != null && (
             <div className="info-item">
               <span className="info-label">Predicted Daily Revenue:</span>
               <span
@@ -129,10 +129,12 @@ export default function InfoPanel({ zone, city, onClose, hasResults, bestScenari
       </div>
 
       <div className="info-body">
-        <div className="info-item">
-          <span className="info-label">Bounds:</span>
-          <span className="info-value">({city.min_latitude.toFixed(2)}, {city.max_latitude.toFixed(2)}) to ({city.min_longitude.toFixed(2)}, {city.max_longitude.toFixed(2)})</span>
-        </div>
+        {city.min_latitude != null && city.max_latitude != null && city.min_longitude != null && city.max_longitude != null && (
+          <div className="info-item">
+            <span className="info-label">Bounds:</span>
+            <span className="info-value">({city.min_latitude.toFixed(2)}, {city.max_latitude.toFixed(2)}) to ({city.min_longitude.toFixed(2)}, {city.max_longitude.toFixed(2)})</span>
+          </div>
+        )}
 
         <div className="info-item">
           <span className="info-label">Total Parking Zones:</span>
