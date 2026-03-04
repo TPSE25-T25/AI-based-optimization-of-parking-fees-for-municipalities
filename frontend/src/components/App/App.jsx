@@ -182,7 +182,9 @@ function App() {
 
   const runOptimization = async () => {
     if (!city || !city.parking_zones || city.parking_zones.length === 0) {
-      setError('No zones loaded. Please wait for zones to load first.');
+      const noZonesMessage = 'No parking zones available. Please load city data first.';
+      setError(noZonesMessage);
+      setModalMessage(noZonesMessage);
       return;
     }
 
@@ -521,6 +523,7 @@ function App() {
           loadCity={fetchCity}
           optimizing={optimizing}
           loading={loading}
+          hasParkingZones={Boolean(city?.parking_zones?.length)}
         />
         <OptimizationSettings
           dataSource={dataSource}
